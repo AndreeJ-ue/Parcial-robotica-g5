@@ -2,7 +2,7 @@
 
 Repositorio del equipo 5 para el parcial: broker del RB2, interpretación de órdenes con LAYA, transcripción de voz con Google y herramientas de percepción y manipulación. Reúne el código desarrollado y los avances experimentales de las preguntas 1 y 3.
 
-Repositorio: [AndreeJ-ue/Parcial-robotica](https://github.com/AndreeJ-ue/Parcial-robotica). La instalación y los comandos por equipo están en [GUIA_CONFIGURACION.md](GUIA_CONFIGURACION.md).
+Repositorio: [AndreeJ-ue/Parcial-robotica-g5](https://github.com/AndreeJ-ue/Parcial-robotica-g5). La instalación y los comandos por equipo están en [GUIA_CONFIGURACION.md](GUIA_CONFIGURACION.md).
 
 ## Trabajo realizado
 
