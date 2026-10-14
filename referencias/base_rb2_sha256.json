@@ -1,0 +1,62 @@
+[
+  {
+    "archivo": "src/arm_broker/arm_broker/__init__.py",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "archivo": "src/arm_broker/arm_broker/broker.py",
+    "sha256": "88d269b88041dec0724017b50445b22645943fd81a87075c69b8e5e3dc629bf0"
+  },
+  {
+    "archivo": "src/arm_broker/arm_broker/cliente.py",
+    "sha256": "66197ca12142d188501f7fc80589373719533b73553eab081672f2fb1115ca6f"
+  },
+  {
+    "archivo": "src/arm_broker/arm_broker/estado.py",
+    "sha256": "1a5efd7e4d4a2e81f5619922c0c9950e404c0d81e8cb98c70c204e488d55210c"
+  },
+  {
+    "archivo": "src/arm_broker/arm_broker/eventos.py",
+    "sha256": "29f469106ce9eac8e829c76b123c9af67dbf1050f3ea3ca988d8d80bce6e7890"
+  },
+  {
+    "archivo": "src/arm_broker/arm_broker/fk.py",
+    "sha256": "7658ee2aa73d4d2bea93b1bc8c837fa4db4c3fe87235dda07c9cbd422b68e718"
+  },
+  {
+    "archivo": "src/arm_broker/arm_broker/politicas.py",
+    "sha256": "a7b93989dbb3f4a620946952358fbcc6f1287ff641050f0b2ba653191dab8bcb"
+  },
+  {
+    "archivo": "src/arm_broker/package.xml",
+    "sha256": "4101d873d400208dee7fffeb367783b0199244845b7fd32e3eeeb0d2407cb415"
+  },
+  {
+    "archivo": "src/arm_broker/resource/arm_broker",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "archivo": "src/arm_broker/setup.cfg",
+    "sha256": "ab5fdbfdb088d207457ffe1bf4bf4d0b6750cad2c3d9b6e98f4c8eef316a2ba0"
+  },
+  {
+    "archivo": "src/arm_broker/setup.py",
+    "sha256": "14facb1ddb86c97b58769368ac824b35885e01ba80c731784fe325975c32ba55"
+  },
+  {
+    "archivo": "src/arm_broker_interfaces/action/MoveArm.action",
+    "sha256": "a27308261acaf1da89fa7f83929ef9b67dcdb73cec6e381135078c37d7a7f514"
+  },
+  {
+    "archivo": "src/arm_broker_interfaces/CMakeLists.txt",
+    "sha256": "2b4a005ca5774b09a5a4dfe8821f9de59fbe3ce9a8640e1f30672cb3b22163dd"
+  },
+  {
+    "archivo": "src/arm_broker_interfaces/msg/QueueState.msg",
+    "sha256": "9e91cffcb95460e7de29436f73fee1a2d5f7e5a5f87ab827abb72e9c35102ebf"
+  },
+  {
+    "archivo": "src/arm_broker_interfaces/package.xml",
+    "sha256": "e6a5b72cb13bc84823b59b21f24fb422e547348af40ddb23acc3c8499d7d1d5e"
+  }
+]

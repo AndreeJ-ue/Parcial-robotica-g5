@@ -1,0 +1,27 @@
+string client_id
+string request_id
+string frase
+DecisionOrden decision
+int64 fin_habla_wall_ns
+---
+bool success
+bool simulado
+string message
+float64 wait_time_s
+float64 exec_time_s
+float64 preparacion_s
+float64 gripper_previo_s
+float64 percepcion_s
+float64 ik_s
+float64 planificacion_s
+float64 gripper_s
+float64 movimiento_s
+float64 error_fk_mm
+float64[] q_medida_rad
+float64[] solicitado_xyz_m
+int64 inicio_comando_wall_ns
+int64 inicio_movimiento_wall_ns
+---
+string state
+int32 queue_position
+float64 elapsed_s

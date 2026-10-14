@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>parcial_jetcobot</name><version>0.1.0</version>
+  <description>Interpretación, percepción, voz y extensión del broker RB2 para el parcial</description>
+  <maintainer email="equipo@esan.edu.pe">Equipo 5</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend><exec_depend>arm_broker</exec_depend>
+  <exec_depend>arm_broker_interfaces</exec_depend><exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend><exec_depend>moveit_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend><exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>ament_index_python</exec_depend><exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-opencv</exec_depend><exec_depend>python3-numpy</exec_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

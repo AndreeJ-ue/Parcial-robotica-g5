@@ -1,0 +1,5 @@
+bool abrir
+float64 timeout_s
+---
+bool completado
+string motivo

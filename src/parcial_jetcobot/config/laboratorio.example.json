@@ -1,0 +1,201 @@
+{
+  "modo": "real",
+  "catalogo_confirmado": false,
+  "destino_por_defecto": "zona_a",
+  "catalogo": [
+    {
+      "objeto": "cubo",
+      "color": "rojo",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        -0.09,
+        0.03
+      ]
+    },
+    {
+      "objeto": "cubo",
+      "color": "azul",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        -0.03,
+        0.03
+      ]
+    },
+    {
+      "objeto": "cubo",
+      "color": "verde",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        0.03,
+        0.03
+      ]
+    },
+    {
+      "objeto": "cubo",
+      "color": "amarillo",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        0.09,
+        0.03
+      ]
+    }
+  ],
+  "zonas": {
+    "zona_a": {
+      "confirmada": false,
+      "xyz_m": [
+        0.18,
+        -0.12,
+        0.03
+      ],
+      "quaternion_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "frame_id": "base"
+    },
+    "zona_b": {
+      "confirmada": false,
+      "xyz_m": [
+        0.18,
+        0.12,
+        0.03
+      ],
+      "quaternion_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "frame_id": "base"
+    }
+  },
+  "agarre": {
+    "altura_aproximacion_m": 0.05,
+    "quaternion_xyzw": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "interpretacion": {
+    "modo": "laya",
+    "url": "",
+    "modelo": "",
+    "preset": "",
+    "timeout_s": 3.0,
+    "umbral_permiso": 0.8
+  },
+  "camara": {
+    "indice": 0,
+    "camara_fija": false,
+    "calibracion_confirmada": false,
+    "area_minima_px": 300,
+    "homografia_pixel_base_m": null,
+    "matriz_intrinseca": null,
+    "distorsion": null,
+    "hsv": {
+      "rojo": [
+        [
+          [
+            0,
+            100,
+            80
+          ],
+          [
+            10,
+            255,
+            255
+          ]
+        ],
+        [
+          [
+            170,
+            100,
+            80
+          ],
+          [
+            179,
+            255,
+            255
+          ]
+        ]
+      ],
+      "azul": [
+        [
+          [
+            95,
+            80,
+            60
+          ],
+          [
+            130,
+            255,
+            255
+          ]
+        ]
+      ],
+      "verde": [
+        [
+          [
+            35,
+            80,
+            60
+          ],
+          [
+            85,
+            255,
+            255
+          ]
+        ]
+      ],
+      "amarillo": [
+        [
+          [
+            20,
+            100,
+            80
+          ],
+          [
+            35,
+            255,
+            255
+          ]
+        ]
+      ]
+    }
+  },
+  "hardware": {
+    "modelo_confirmado": false,
+    "driver_trayectorias_validado": false,
+    "adaptador_serial_confirmado": false,
+    "escena_colisiones_confirmada": false,
+    "grupo_moveit": "",
+    "eef_link": "",
+    "joint_names_moveit": [],
+    "frame_base": "base",
+    "servicio_ik": "/compute_ik",
+    "servicio_plan": "/plan_kinematic_path",
+    "timeout_servicio_s": 10.0,
+    "timeout_ik_s": 2.0,
+    "timeout_planificacion_s": 5.0,
+    "timeout_llegada_s": 10.0,
+    "timeout_pinza_s": 5.0,
+    "velocidad_escala": 0.15,
+    "aceleracion_escala": 0.15,
+    "tolerancia_inicio_rad": 0.1,
+    "tolerancia_llegada_rad": 0.08
+  },
+  "voz": {
+    "timeout_s": 12.0,
+    "modelo_env": "GEMINI_MODEL",
+    "clave_env": "GEMINI_API_KEY"
+  }
+}
