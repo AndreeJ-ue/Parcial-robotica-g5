@@ -1,6 +1,6 @@
 # Configuración de Raspberry Jetson LAYA y voz
 
-Esta guía usa el repositorio [Parcial-robotica](https://github.com/AndreeJ-ue/Parcial-robotica). Las órdenes de Raspberry y Jetson se ejecutan en Bash; las de Windows se identifican como PowerShell. Usa equipos autorizados del laboratorio y la IP, dominio, puerto y preset asignados a la reserva actual. `47` corresponde al RB2 del equipo 5; `112` fue utilizado en la última sesión con `.17`. Elige el valor asignado para la sesión, no una IP histórica.
+Esta guía usa el repositorio [Parcial-robotica-g5](https://github.com/AndreeJ-ue/Parcial-robotica-g5). Las órdenes de Raspberry y Jetson se ejecutan en Bash; las de Windows se identifican como PowerShell. Usa equipos autorizados del laboratorio y la IP, dominio, puerto y preset asignados a la reserva actual. `47` corresponde al RB2 del equipo 5; `112` fue utilizado en la última sesión con `.17`. Elige el valor asignado para la sesión, no una IP histórica.
 
 ## 1 Descargar los archivos cuando el equipo no los tiene
 
