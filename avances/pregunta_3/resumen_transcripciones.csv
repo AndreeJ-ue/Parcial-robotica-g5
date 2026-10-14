@@ -1,0 +1,7 @@
+audio,texto,metodo,transcripcion_s,decision_s
+orden_01.wav,ros2 run arm_broker transcriptor_voz --ros-args \,teclado,6.642,0.156
+orden_01.wav,Agarra el cubo rojo.,google,2.993,0.152
+orden_02.wav,Recoge el cubo azul,google,5.830,0.133
+orden_03.wav,Toma el cubo verde.,google,3.935,0.128
+orden_04.wav,Agarra el cubo morado,google,8.251,0.180
+orden_05.wav,Mueve el brazo fuera de la zona de trabajo,google,7.301,0.150

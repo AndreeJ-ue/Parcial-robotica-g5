@@ -1,0 +1,2 @@
+Recoge el cubo amarillo y deposítalo en la zona a
+Lleva el cubo amarillo a la zona b urgente

@@ -1,0 +1,2 @@
+Recoge el cubo verde y deposítalo en la zona a
+Lleva el cubo verde a la zona b urgente

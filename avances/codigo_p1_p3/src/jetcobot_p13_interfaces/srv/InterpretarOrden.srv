@@ -1,0 +1,23 @@
+# Servicio /interpretar_orden — Pregunta 1 del Gran Reto JetCobot.
+# Convierte una frase en español en una decisión de campos tipados (nunca texto libre).
+
+# ---- Petición ----
+string frase                 # frase del operador, ya escrita o ya transcrita
+bool forzar_clasificador     # true = no consultar LAYA; resolver con el clasificador local
+                             # (útil para medir la exactitud de cada método por separado)
+---
+# ---- Respuesta: decisión tipada ----
+string accion                # agarrar | soltar | mover | detener | desconocido
+string objeto                # cubo | cilindro | esfera | ... | desconocido
+string color                 # rojo | verde | azul | amarillo | ninguno
+int32 prioridad              # 0..255, a mayor número mayor urgencia
+bool permitido               # false cuando la orden no se debe ejecutar
+string motivo                # explicación del rechazo; vacío si la orden es válida
+
+# ---- Metadatos para medir el Ítem 1 (no son obligatorios, pero evitan tener que
+#      recalcular aparte lo que pide el enunciado) ----
+bool degradada               # true = respondió el clasificador local y no LAYA
+string fuente                # "laya" o "palabras_clave"
+float64 tiempo_total_s       # tiempo total que tomó resolver la orden
+float64 tiempo_red_s         # parte de ese tiempo atribuible a la red
+float64 tiempo_computo_s     # parte atribuible al cómputo del servidor LAYA
