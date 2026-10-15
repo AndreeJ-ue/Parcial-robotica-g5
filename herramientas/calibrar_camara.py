@@ -3,8 +3,12 @@
 
 Para qué sirve: la cámara está montada EN EL BRAZO, así que solo ve bien la mesa cuando el
 brazo está en POSE_BUSQUEDA. Con el brazo en esa pose, este script abre la cámara a 640x480,
-muestra la imagen en vivo y deja que ustedes hagan CLIC en los cuatro cubos, en orden
-pos1, pos2, pos3, pos4. Al terminar imprime la cadena exacta para copiar en el orquestador:
+muestra la imagen en vivo y deja que ustedes hagan CLIC en las cuatro esquinas de la mesa, en
+orden pos1, pos2, pos3, pos4. El nombre de cada posN debe coincidir con su pose de poses.py:
+    pos1 = abajo_derecha     pos2 = abajo_izquierda
+    pos3 = arriba_derecha    pos4 = arriba_izquierda
+(esquinas tal como se ven en la IMAGEN de la cámara; respetar este orden evita espejar las
+anclas respecto a las poses). Al terminar imprime la cadena exacta para copiar en el orquestador:
 
     -p anclas_camara:="['pos1=<x>,<y>','pos2=<x>,<y>','pos3=<x>,<y>','pos4=<x>,<y>']"
 
@@ -214,9 +218,11 @@ def capturar_anotada(cv, cap, paso, espera, guardar):
             print(f'    {color}: ({x}, {y})')
     else:
         print('    (ninguno; abre la foto y lee las coordenadas con la rejilla)')
-    print('\nAsigna cada cubo a pos1..pos4 (esquinas fijas de la mesa) y pasa la cadena,')
-    print('por ejemplo:')
-    print("    -p anclas_camara:=\"['pos1=214,167','pos2=421,163','pos3=232,352','pos4=408,349']\"")
+    print('\nAsigna cada esquina a pos1..pos4 (coincidiendo con las poses de poses.py):')
+    print('    pos1 = abajo_derecha    pos2 = abajo_izquierda')
+    print('    pos3 = arriba_derecha   pos4 = arriba_izquierda')
+    print('(tal como se ven en la IMAGEN de la cámara) y pasa la cadena. Ejemplo:')
+    print("    -p anclas_camara:=\"['pos1=537,385','pos2=114,380','pos3=520,87','pos4=122,90']\"")
 
 
 def main():

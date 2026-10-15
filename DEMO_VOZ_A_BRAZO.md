@@ -106,7 +106,7 @@ ros2 run arm_broker transcriptor_voz --ros-args -p fuente:=teclado -p n_ordenes:
 
 ### T5 — Orquestador (ítem 2): mueve el brazo
 ```bash
-ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion_pinza:=gripper_command -p paso_orquestador_rad:=1.5 -p usar_camara:=true -p usar_pose_busqueda:=true -p anclas_camara:="['pos1=114,380','pos2=537,385','pos3=122,90','pos4=520,87']"
+ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion_pinza:=gripper_command -p paso_orquestador_rad:=1.5 -p usar_camara:=true -p usar_pose_busqueda:=true -p anclas_camara:="['pos1=537,385','pos2=114,380','pos3=520,87','pos4=122,90']"
 ```
 
 ---

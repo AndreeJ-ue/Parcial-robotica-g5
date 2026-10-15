@@ -58,7 +58,7 @@ POSE_BUSQUEDA = [20, -8, -21, -54, 0, -22]   # la cámara va en el brazo: mira l
 
 ### Anclas de píxel (imagen 640×480, con el brazo en `POSE_BUSQUEDA`)
 ```
-pos1 = (114, 380)   pos2 = (537, 385)   pos3 = (122, 90)   pos4 = (520, 87)
+pos1 = (537, 385)   pos2 = (114, 380)   pos3 = (520, 87)   pos4 = (122, 90)
 ```
 
 > El **color no influye en la pose**: las anclas y las poses son por **posición**. La cámara
@@ -80,8 +80,9 @@ articular, pero sin rechazos.
 4. **Ir a `POSE_BUSQUEDA`** (el brazo coloca la cámara frente a la mesa) y esperar a que se asiente.
 5. Cámara: localiza el color pedido y devuelve `pos1..pos4`; si no está sobre la mesa → rechazo
    `no_detectado`.
-6. `abrir pinza` → goal a la pose del cubo (**troceado**) → `cerrar pinza` → goal a la zona del
-   color (**troceado**) → `abrir pinza` → volver a `POSE_HOME`.
+6. `abrir pinza` → goal a la pose del cubo (**troceado**) → `cerrar pinza` → **goal a
+   `POSE_BUSQUEDA` (levanta el cubo y despeja la mesa, evita chocar otros cubos)** → goal a la
+   zona del color (**troceado**) → `abrir pinza` → volver a `POSE_HOME`.
 7. Registro en `intentos.csv`: éxito y error de FK entre la pose de depósito solicitada y la
    alcanzada (leída de `/joint_states`, solo lectura).
 
@@ -151,7 +152,7 @@ Escribe, por ejemplo: `agarra el cubo rojo`. Puedes enviar varias seguidas.
 ros2 run arm_broker orquestador --ros-args \
   -p gripper_habilitada:=true -p accion_pinza:=gripper_command \
   -p paso_orquestador_rad:=1.5 -p usar_camara:=true -p usar_pose_busqueda:=true \
-  -p anclas_camara:="['pos1=114,380','pos2=537,385','pos3=122,90','pos4=520,87']"
+  -p anclas_camara:="['pos1=537,385','pos2=114,380','pos3=520,87','pos4=122,90']"
 ```
 Debe verse: `🔎 POSE_BUSQUEDA: colocando la cámara frente a la mesa`, luego `🤖 Intento N: <color> en
 posN → zona <color>` y la secuencia (abrir → cubo → cerrar → zona → abrir → `HOME`), y una fila
@@ -201,16 +202,15 @@ Copia la cadena y pégala en el comando de T5 (o actualiza el default en `orques
 | `acciones_aceptadas` | `['agarrar']` | Acciones que el orquestador atiende. |
 | `paso_orquestador_rad` | `1.5` | Tamaño del trozo. Debe ser ≤ `paso_max_rad` del broker. |
 | `timeout_goal_s` | `120.0` | Cuánto espera a que el broker termine un goal. |
-| `usar_camara` | `true` | Encender la cámara (`false` → usa `mapa_color_fijo`). |
+| `usar_camara` | `true` | Encender la cámara. `false` deja sin percepción → toda orden se rechaza (`no_detectado`); **no hay respaldo**. |
 | `usar_pose_busqueda` | `true` | Ir a `POSE_BUSQUEDA` antes de detectar (la cámara va en el brazo). |
 | `pose_busqueda` | `[20,-8,-21,-54,0,-22]` | Ángulos de la pose que mira la mesa. |
 | `espera_busqueda_s` | `1.0` | Tiempo de asentado tras llegar a `POSE_BUSQUEDA`. |
-| `anclas_camara` | `['pos1=114,380', ...]` | Píxeles (x,y) de cada posición de la mesa. |
+| `anclas_camara` | `['pos1=537,385', ...]` | Píxeles (x,y) de cada esquina de la mesa (coincidiendo con su pose `posN`). |
 | `radio_ancla_px` | `70.0` | Radio (px) para asignar un color a una posición. |
 | `frames_estabilidad` | `8` | Cuadros seguidos que debe verse el mismo color. |
 | `timeout_color_s` | `8.0` | Cuánto espera a que aparezca el color pedido (si no, rechazo `no_detectado`). |
 | `indice_camara` | `-1` | Qué cámara usar (`-1` = automático). |
-| `mapa_color_fijo` | `[]` | Mapa manual color→posición si no usas cámara. |
 | `gripper_habilitada` | `true` | Encender el control de la pinza (`false` = no abre/cierra). |
 | `accion_pinza` | `gripper_command` | Vía primaria de la pinza (respaldo: `pinza_pymycobot`). |
 | `pinza_pos_abierta` / `pinza_pos_cerrada` | `100` / `0` | Posiciones de la pinza. |
@@ -258,11 +258,15 @@ ros2 topic echo /arm/queue_state
 | ¿Un poco prioritario espera para siempre? | No aplica. | No: el envejecimiento lo hace subir. |
 
 ## 9. Pruebas sin hardware
-- **Sin cámara calibrada:** añade `-p usar_camara:=false -p mapa_color_fijo:="['rojo=pos1','verde=pos2','azul=pos3','amarillo=pos4']"`.
 - **Sin pinza del kit:** `-p gripper_habilitada:=false`.
+- **La posición SIEMPRE sale de la cámara:** no hay respaldo `mapa_color_fijo`. Si no hay cámara o
+  no se ve el color pedido, la orden se rechaza con `no_detectado`.
 
 ## 10. Problemas comunes
 - **Rechazo `paso`** → baja `paso_orquestador_rad` (≤ `paso_max_rad` del broker).
-- **Color en posición equivocada** → recalibra con el brazo **exactamente** en `POSE_BUSQUEDA`; ajusta `radio_ancla_px`.
+- **Color en posición equivocada** → recalibra con el brazo **exactamente** en `POSE_BUSQUEDA`,
+  respetando el orden `pos1=abajo_derecha, pos2=abajo_izquierda, pos3=arriba_derecha,
+  pos4=arriba_izquierda` (si las anclas quedan espejadas respecto a las poses, el color va a la
+  esquina contraria); ajusta `radio_ancla_px`.
 - **`gripper_command` no responde** → respaldo `pinza_pymycobot` por puerto serie.
 - **No hay MoveIt2/URDF/ros2_control** → la "IK" son las poses precalculadas de `poses.py`.

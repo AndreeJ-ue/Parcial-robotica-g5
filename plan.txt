@@ -17,11 +17,13 @@ Flujo actual (sin cambios de lógica):
 Base de calibración: POSE_BUSQUEDA = [20, -8, -21, -54, 0, -22]  [poses.py]
 
 A) Anclas de píxel (imagen 640x480, con el brazo en POSE_BUSQUEDA)
-   Orden pos1..pos4 (el mapeo esquina<->posN viene de B):
-     pos1 = (114, 380)
-     pos2 = (537, 385)
-     pos3 = (122, 90)
-     pos4 = (520, 87)
+   Orden pos1..pos4 (el mapeo esquina<->posN viene de B; anclas alineadas con las poses):
+     pos1 = (537, 385)   # abajo_derecha
+     pos2 = (114, 380)   # abajo_izquierda
+     pos3 = (520, 87)    # arriba_derecha
+     pos4 = (122, 90)    # arriba_izquierda
+   (Antes estaban espejadas horizontalmente: pedir rojo -> iba a la esquina contraria.
+    El color NUNCA fija la posicion: la camara arma color->posN en vivo.)
    Separacion minima entre anclas ~290 px > 2 x radio_ancla_px (70) -> radio correcto.
 
 B) Poses J1-J6 por esquina (grados), con su posicion POSICIONES_CUBO
@@ -38,7 +40,7 @@ B) Poses J1-J6 por esquina (grados), con su posicion POSICIONES_CUBO
    Archivo                              Cambio
    plan.txt                             Este documento: datos completos y arquitectura real.
    src/arm_broker/arm_broker/orquestador.py      Defaults de anclas_camara (lineas 56-58) ->
-                                                 pos1=114,380 pos2=537,385 pos3=122,90 pos4=520,87
+                                                 pos1=537,385 pos2=114,380 pos3=520,87 pos4=122,90
    src/arm_broker/arm_broker/percepcion_camara.py  Fallback de anclas (lineas 41-46) -> mismos valores
    docs/CALIBRAR_CAMARA.md               POSE_BUSQUEDA antigua (lineas 4, 39) -> la de poses.py
    README_ITEM_2.md                      POSE_BUSQUEDA antigua (linea 53) -> la de poses.py

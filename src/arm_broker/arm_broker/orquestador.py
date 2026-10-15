@@ -54,13 +54,12 @@ class NodoOrquestador(Node):
         self.declare_parameter('pose_busqueda', list(poses.POSE_BUSQUEDA))
         self.declare_parameter('espera_busqueda_s', 1.0)
         self.declare_parameter('anclas_camara', [
-            'pos1=114,380', 'pos2=537,385', 'pos3=122,90', 'pos4=520,87',
+            'pos1=537,385', 'pos2=114,380', 'pos3=520,87', 'pos4=122,90',
         ])
         self.declare_parameter('radio_ancla_px', 70.0)
         self.declare_parameter('frames_estabilidad', 8)
         self.declare_parameter('timeout_color_s', 8.0)
         self.declare_parameter('indice_camara', -1)
-        self.declare_parameter('mapa_color_fijo', [])
 
         self.declare_parameter('gripper_habilitada', True)
         self.declare_parameter('accion_pinza', 'gripper_command')
@@ -89,8 +88,6 @@ class NodoOrquestador(Node):
         self.pose_busqueda = [float(v) for v in self.get_parameter('pose_busqueda').value]
         self.espera_busqueda = float(self.get_parameter('espera_busqueda_s').value)
 
-        self.mapa_fijo = self._leer_mapa_fijo(self.get_parameter('mapa_color_fijo').value)
-
         # Estado compartido
         self.lock = threading.Lock()
         self.lock_joint = threading.Lock()
@@ -104,7 +101,7 @@ class NodoOrquestador(Node):
         self.registro_intentos = intentos.RegistroIntentos(
             str(self.get_parameter('archivo_intentos').value))
 
-        # Cámara (opcional): si no está, se usa mapa_color_fijo
+        # Cámara (obligatoria para ubicar): sin cámara no hay respaldo, se rechaza la orden
         self.camara = None
         if bool(self.get_parameter('usar_camara').value):
             self.camara = PercepcionCamara(
@@ -163,16 +160,6 @@ class NodoOrquestador(Node):
             except ValueError:
                 continue
         return anclas
-
-    @staticmethod
-    def _leer_mapa_fijo(lista):
-        mapa = {}
-        for item in lista:
-            if '=' not in item:
-                continue
-            color, posicion = item.split('=', 1)
-            mapa[color.strip().lower()] = posicion.strip().lower()
-        return mapa
 
     def _preparar_rechazos(self):
         if not os.path.exists(self.ruta_rechazos):
@@ -283,20 +270,16 @@ class NodoOrquestador(Node):
         if self.espera_busqueda > 0.0:
             time.sleep(self.espera_busqueda)
 
-    # 6b. Ubicación del color con cámara (o mapa fijo de respaldo)
+    # 6b. Ubicación del color con cámara (SIN respaldo: la posición siempre sale de la cámara)
     def _ubicar(self, color):
-        if self.camara is not None and self.camara.disponible:
-            posicion = self.camara.esperar_color(color, self.timeout_color)
-            if posicion is not None:
-                return posicion
+        if self.camara is None or not self.camara.disponible:
+            self.get_logger().warn('sin cámara disponible: no hay respaldo, se rechaza la orden')
+            return None
+        posicion = self.camara.esperar_color(color, self.timeout_color)
+        if posicion is None:
             self.get_logger().warn(
-                f'la cámara no vio un cubo {color} estable; pruebo mapa_color_fijo')
-
-        posicion = self.mapa_fijo.get(color)
-        if posicion in poses.POSICIONES_CUBO:
-            self.get_logger().info(f'mapa_color_fijo: {color} -> {posicion}')
-            return posicion
-        return None
+                f'la cámara no vio un cubo {color} estable; sin respaldo, se rechaza la orden')
+        return posicion
 
     # 7. Secuencia completa de un pedido
     def _procesar(self, decision):
@@ -344,6 +327,13 @@ class NodoOrquestador(Node):
 
         if not self.pinza.cerrar():
             self.get_logger().warn('la pinza no cerró; el cubo podría caerse')
+
+        # Levantar el cubo a POSE_BUSQUEDA antes de trasladarlo (evita chocar otros cubos)
+        if self.usar_pose_busqueda:
+            self.get_logger().info('⬆️  Levantando a POSE_BUSQUEDA antes de trasladar')
+            if not self._mover_hacia(decision, intento, self.pose_busqueda, prioridad):
+                self._volver_a_casa(decision, intento, prioridad)
+                return False, 'no se pudo levantar el cubo a POSE_BUSQUEDA', None
 
         if not self._mover_hacia(decision, intento, meta_destino, prioridad):
             self._volver_a_casa(decision, intento, prioridad)
