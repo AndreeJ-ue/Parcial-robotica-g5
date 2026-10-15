@@ -1,0 +1,9 @@
+frase,esperado_accion,esperado_objeto,esperado_color,esperado_permitido
+agarra el cubo rojo,agarrar,cubo,rojo,True
+suelta la esfera azul en la zona,soltar,esfera,azul,True
+mueve el cilindro verde hacia la izquierda,mover,cilindro,verde,True
+detente ya,detener,desconocido,ninguno,True
+trae el destornillador que está en la mesa,agarrar,desconocido,ninguno,False
+agarra el cubo amarillo con cuidado,agarrar,cubo,amarillo,True
+coloca la pelota roja junto al cilindro,soltar,esfera,rojo,True
+para el brazo inmediatamente por favor,detener,desconocido,ninguno,True
