@@ -19,6 +19,10 @@ Controles en la ventana:
     r              : reinicia los clics
     s              : guarda una foto anotada
     q o ESC        : termina e imprime la cadena de anclas
+
+SIN pantalla (SSH, terminal de Jupyter, error "could not initialize GTK backend"): usa
+    python3 herramientas/calibrar_camara.py --headless --mover-brazo
+que NO abre ventana: guarda una foto anotada (rejilla + centros de color) y sale.
 """
 
 import argparse
@@ -123,6 +127,98 @@ def cadena_anclas(clics):
     return "-p anclas_camara:=\"[" + ','.join(partes) + "]\""
 
 
+def dibujar_rejilla(cv, frame, paso):
+    """Superpone una rejilla de coordenadas para leer (x, y) a ojo."""
+    if paso <= 0:
+        return frame
+    alto, ancho = frame.shape[:2]
+    for x in range(0, ancho, paso):
+        cv.line(frame, (x, 0), (x, alto), (128, 128, 128), 1)
+        cv.putText(frame, str(x), (x + 2, 12), cv.FONT_HERSHEY_SIMPLEX,
+                   0.35, (0, 255, 255), 1)
+    for y in range(0, alto, paso):
+        cv.line(frame, (0, y), (ancho, y), (128, 128, 128), 1)
+        cv.putText(frame, str(y), (2, y + 12), cv.FONT_HERSHEY_SIMPLEX,
+                   0.35, (0, 255, 255), 1)
+    return frame
+
+
+def detectar_colores(frame):
+    """Devuelve [(color, x, y)] por cubo detectado. Reutiliza percepcion_camara si está;
+    si no, usa el mismo criterio HSV local. Nunca lanza: ante cualquier problema, []."""
+    try:
+        from arm_broker.percepcion_camara import PercepcionCamara
+        return PercepcionCamara()._detectar(frame)
+    except Exception:
+        pass
+    try:
+        import cv2 as cv
+        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+        rangos = {
+            'rojo': [((0, 120, 70), (10, 255, 255)), ((170, 120, 70), (180, 255, 255))],
+            'amarillo': [((20, 100, 100), (35, 255, 255))],
+            'verde': [((40, 70, 70), (85, 255, 255))],
+            'azul': [((90, 100, 70), (130, 255, 255))],
+        }
+        salida = []
+        for color, franjas in rangos.items():
+            mascara = None
+            for bajo, alto in franjas:
+                m = cv.inRange(hsv, bajo, alto)
+                mascara = m if mascara is None else cv.bitwise_or(mascara, m)
+            mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
+            mascara = cv.morphologyEx(mascara, cv.MORPH_CLOSE, kernel)
+            contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+            if not contornos:
+                continue
+            contorno = max(contornos, key=cv.contourArea)
+            if cv.contourArea(contorno) < 300.0:
+                continue
+            moments = cv.moments(contorno)
+            if moments['m00'] == 0:
+                continue
+            salida.append((color, int(moments['m10'] / moments['m00']),
+                           int(moments['m01'] / moments['m00'])))
+        return salida
+    except Exception:
+        return []
+
+
+def capturar_anotada(cv, cap, paso, espera, guardar):
+    """Toma un frame estable (headless), le dibuja rejilla + colores y lo guarda."""
+    print(f'[CALIBRADOR] esperando {espera:.1f}s a que se asiente la imagen...')
+    time.sleep(espera)
+    frame = None
+    for _ in range(10):
+        ok, leido = cap.read()
+        if ok:
+            frame = leido
+        time.sleep(0.05)
+    if frame is None:
+        print('[CALIBRADOR] no se pudo leer ningún frame de la cámara')
+        return
+
+    detecciones = detectar_colores(frame)
+    for color, x, y in detecciones:
+        cv.circle(frame, (x, y), 8, (255, 255, 255), 2)
+        cv.putText(frame, color, (x + 10, y), cv.FONT_HERSHEY_SIMPLEX,
+                   0.6, (255, 255, 255), 2)
+    dibujar_rejilla(cv, frame, paso)
+
+    cv.imwrite(guardar, frame)
+    print(f'[CALIBRADOR] foto guardada en: {guardar}')
+    print('[CALIBRADOR] centros detectados (x, y):')
+    if detecciones:
+        for color, x, y in detecciones:
+            print(f'    {color}: ({x}, {y})')
+    else:
+        print('    (ninguno; abre la foto y lee las coordenadas con la rejilla)')
+    print('\nAsigna cada cubo a pos1..pos4 (esquinas fijas de la mesa) y pasa la cadena,')
+    print('por ejemplo:')
+    print("    -p anclas_camara:=\"['pos1=214,167','pos2=421,163','pos3=232,352','pos4=408,349']\"")
+
+
 def main():
     ap = argparse.ArgumentParser(description='Calibra las anclas de color de la cámara.')
     ap.add_argument('--indice', type=int, default=None,
@@ -133,6 +229,12 @@ def main():
                     help='manda al broker un goal move_arm hasta POSE_BUSQUEDA antes de abrir la cámara')
     ap.add_argument('--paso', type=float, default=1.5,
                     help='paso de troceado en radianes para ir a POSE_BUSQUEDA (default 1.5)')
+    ap.add_argument('--headless', action='store_true',
+                    help='sin ventana (no necesita GTK/DISPLAY): guarda una foto anotada y sale')
+    ap.add_argument('--espera', type=float, default=2.0,
+                    help='segundos de asentado antes de capturar en --headless (default 2.0)')
+    ap.add_argument('--rejilla', type=int, default=40,
+                    help='paso de la rejilla de coordenadas en px para --headless (default 40)')
     args = ap.parse_args()
 
     try:
@@ -142,8 +244,12 @@ def main():
 
     print('=' * 64)
     print('  CALIBRADOR DE ANCLAS DE CÁMARA (Ítem 2)')
-    print('  Orden de clic: pos1, pos2, pos3, pos4')
-    print('  r=reiniciar  s=guardar  q/ESC=terminar y mostrar anclas')
+    if args.headless:
+        print('  MODO HEADLESS: sin ventana; guarda una foto anotada y sale')
+        print('  (no necesita GTK ni DISPLAY)')
+    else:
+        print('  Orden de clic: pos1, pos2, pos3, pos4')
+        print('  r=reiniciar  s=guardar  q/ESC=terminar y mostrar anclas')
     print('=' * 64)
 
     if args.mover_brazo:
@@ -153,6 +259,14 @@ def main():
     cap = abrir_camara(cv, args.indice)
     if cap is None:
         sys.exit('FALLO: no se encontró cámara disponible.')
+
+    if args.headless:
+        try:
+            capturar_anotada(cv, cap, args.rejilla, args.espera,
+                             args.guardar or 'foto_anclas.jpg')
+        finally:
+            cap.release()
+        return
 
     ventana = 'calibrar_camara - clic en los cubos (pos1..pos4)'
     clics = {}
