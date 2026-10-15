@@ -1,0 +1,59 @@
+1. Objetivo
+Eliminar la necesidad de introducir las posiciones de calibración manualmente cada vez que se
+ejecute el programa, fijando en el código los datos ya calibrados. La lógica de selección de pose
+por posición YA EXISTE en la arquitectura actual; este plan solo revisa y ajusta DATOS.
+
+Flujo actual (sin cambios de lógica):
+- La cámara detecta un cubo y obtiene (color, cx, cy)            [percepcion_camara.py:_detectar]
+- Se asigna a la posición de la mesa más cercana por distancia euclídea entre (cx, cy) y las
+  anclas de píxel fijas pos1..pos4                                 [percepcion_camara.py:_asignar_posiciones]
+- El mapa color -> posición se construye en vivo: el color SOLO identifica el cubo, nunca decide
+  la pose. Las anclas y las poses son independientes del color.
+- La pose J1-J6 de recogida sale de la posición detectada         [poses.py:POSICIONES_CUBO]
+- El orquestador trocea el movimiento y manda goals al broker      [orquestador.py:_mover_hacia]
+- Único publicador de /joint_states: el broker                     [broker.py:mover]
+
+2. Datos Fijos a Utilizar (ya calibrados)
+Base de calibración: POSE_BUSQUEDA = [20, -8, -21, -54, 0, -22]  [poses.py]
+
+A) Anclas de píxel (imagen 640x480, con el brazo en POSE_BUSQUEDA)
+   Orden pos1..pos4 (el mapeo esquina<->posN viene de B):
+     pos1 = (114, 380)
+     pos2 = (537, 385)
+     pos3 = (122, 90)
+     pos4 = (520, 87)
+   Separacion minima entre anclas ~290 px > 2 x radio_ancla_px (70) -> radio correcto.
+
+B) Poses J1-J6 por esquina (grados), con su posicion POSICIONES_CUBO
+   Esquina            posN   J1    J2    J3    J4   J5   J6
+   abajo_derecha      pos1    3   -19  -109    31    0  -45
+   abajo_izquierda    pos2   41   -13  -126    55    0   -4
+   arriba_derecha     pos3    3   -51   -41     0    0  -45
+   arriba_izquierda   pos4   25   -54   -39     0    0  -25
+
+   Estas poses son IDENTICAS a las de src/arm_broker/arm_broker/poses.py
+   (POSICIONES_CUBO); poses.py no requiere ningun cambio.
+
+3. Archivos a Modificar (solo datos, cero logica)
+   Archivo                              Cambio
+   plan.txt                             Este documento: datos completos y arquitectura real.
+   src/arm_broker/arm_broker/orquestador.py      Defaults de anclas_camara (lineas 56-58) ->
+                                                 pos1=114,380 pos2=537,385 pos3=122,90 pos4=520,87
+   src/arm_broker/arm_broker/percepcion_camara.py  Fallback de anclas (lineas 41-46) -> mismos valores
+   docs/CALIBRAR_CAMARA.md               POSE_BUSQUEDA antigua (lineas 4, 39) -> la de poses.py
+   README_ITEM_2.md                      POSE_BUSQUEDA antigua (linea 53) -> la de poses.py
+   COMANDOS_ITEM_2.md                    Anclas de ejemplo (138, 229, 327) -> anclas reales
+   COMANDOS_RAPIDOS.md                   Anclas de ejemplo (41) -> anclas reales
+   README_ITEM_2.md                      Anclas de ejemplo (117) -> anclas reales
+   docs/EJECUTAR_ITEM_2.md               Anclas de ejemplo (85) -> anclas reales
+
+   NO se modifica: poses.py (datos ya correctos), broker.py, ni ninguna logica de
+   deteccion, orquestacion o publicacion de joint_states.
+
+4. Verificacion
+   - grep: no deben quedar valores viejos (240,180 / 240,340 / 400,180 / 400,340 /
+     [-20, -16, -7, -61, 0, -24]) fuera de archivos historicos.
+   - Lectura cruzada: las tablas de este plan deben coincidir exactamente con
+     poses.py POSICIONES_CUBO.
+   - En la Jetson (con broker + driver): enviar una orden de color y comprobar en los
+     logs del orquestador "Intento 1: <color> en posN" con la posN correcta.

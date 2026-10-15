@@ -18,7 +18,7 @@ POSE_HOME = [0.0, 0.0, 0.0, 0.0, 0.0, -45.0]
 
 # 1b. Pose de búsqueda: el brazo mira la mesa para que la cámara (montada en el brazo)
 # vea los cuatro cubos. La percepción SOLO es válida con el brazo en esta pose.
-POSE_BUSQUEDA = [-20.0, -16.0, -7.0, -61.0, 0.0, -24.0]
+POSE_BUSQUEDA = [20.0, -8.0, -21.0, -54.0, 0.0, -22.0]
 
 # 2. Las cuatro posiciones de cubo sobre la mesa (color-agnósticas)
 POSICIONES_CUBO = {

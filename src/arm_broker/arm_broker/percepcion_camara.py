@@ -39,10 +39,10 @@ class PercepcionCamara:
         self.anclas = dict(anclas or {})
         if not self.anclas:
             self.anclas = {
-                'pos1': (240.0, 180.0),
-                'pos2': (240.0, 340.0),
-                'pos3': (400.0, 180.0),
-                'pos4': (400.0, 340.0),
+                'pos1': (114.0, 380.0),
+                'pos2': (537.0, 385.0),
+                'pos3': (122.0, 90.0),
+                'pos4': (520.0, 87.0),
             }
         self.radio_ancla = float(radio_ancla)
         self.indice_camara = indice_camara

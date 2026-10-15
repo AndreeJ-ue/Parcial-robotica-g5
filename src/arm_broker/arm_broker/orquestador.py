@@ -54,7 +54,7 @@ class NodoOrquestador(Node):
         self.declare_parameter('pose_busqueda', list(poses.POSE_BUSQUEDA))
         self.declare_parameter('espera_busqueda_s', 1.0)
         self.declare_parameter('anclas_camara', [
-            'pos1=240,180', 'pos2=240,340', 'pos3=400,180', 'pos4=400,340',
+            'pos1=114,380', 'pos2=537,385', 'pos3=122,90', 'pos4=520,87',
         ])
         self.declare_parameter('radio_ancla_px', 70.0)
         self.declare_parameter('frames_estabilidad', 8)
