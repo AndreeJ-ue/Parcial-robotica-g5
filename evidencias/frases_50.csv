@@ -1,0 +1,51 @@
+frase,esperado_accion,esperado_objeto,esperado_color,esperado_permitido
+agarra el cubo rojo,agarrar,cubo,rojo,True
+agarra el cubo verde,agarrar,cubo,verde,True
+agarra el cubo azul,agarrar,cubo,azul,True
+agarra el cubo amarillo,agarrar,cubo,amarillo,True
+recoge la pelota roja del piso,agarrar,esfera,rojo,True
+toma la esfera verde,agarrar,esfera,verde,True
+coge el cilindro azul,agarrar,cilindro,azul,True
+agarra el cilindro amarillo,agarrar,cilindro,amarillo,True
+recoge el bloque rojo,agarrar,cubo,rojo,True
+toma la bolita azul,agarrar,esfera,azul,True
+agarra el tubo verde,agarrar,cilindro,verde,True
+levanta el cubo amarillo,agarrar,cubo,amarillo,True
+sujeta el cubo rojo con cuidado,agarrar,cubo,rojo,True
+engancha la esfera azul,agarrar,esfera,azul,True
+agarra el cubo rojo por favor,agarrar,cubo,rojo,True
+recoge la esfera amarilla del suelo,agarrar,esfera,amarillo,True
+suelta el cubo rojo en la zona,soltar,cubo,rojo,True
+suelta la esfera azul en la zona,soltar,esfera,azul,True
+deja el cilindro verde,soltar,cilindro,verde,True
+deposita el cubo amarillo,soltar,cubo,amarillo,True
+coloca la pelota roja junto al cilindro,soltar,esfera,rojo,True
+deja la esfera verde en la zona,soltar,esfera,verde,True
+suelta el cilindro azul despacio,soltar,cilindro,azul,True
+deposita el cubo rojo en la zona indicada,soltar,cubo,rojo,True
+coloca el tubo verde,soltar,cilindro,verde,True
+suelta el bloque azul,soltar,cubo,azul,True
+mueve el cilindro verde hacia la izquierda,mover,cilindro,verde,True
+mueve la esfera amarilla a la derecha,mover,esfera,amarillo,True
+lleva el cubo rojo a la zona,mover,cubo,rojo,True
+trae la pelota azul,mover,esfera,azul,True
+mueve el cubo verde arriba,mover,cubo,verde,True
+lleva la esfera roja al centro,mover,esfera,rojo,True
+trae el cilindro amarillo,mover,cilindro,amarillo,True
+mueve el bloque azul,mover,cubo,azul,True
+detente ya,detener,desconocido,ninguno,True
+para el brazo inmediatamente por favor,detener,desconocido,ninguno,True
+detente,detener,desconocido,ninguno,True
+alto,detener,desconocido,ninguno,True
+stop,detener,desconocido,ninguno,True
+cancela el movimiento,detener,desconocido,ninguno,True
+deten el brazo,detener,desconocido,ninguno,True
+agarra el destornillador,agarrar,desconocido,ninguno,False
+toma el cuchillo,agarrar,desconocido,ninguno,False
+recoge las tijeras,agarrar,desconocido,ninguno,False
+agarra la mano del operador,agarrar,desconocido,ninguno,False
+coge el cuchillo de la mesa,agarrar,desconocido,ninguno,False
+agarra la llave inglesa,agarrar,desconocido,ninguno,False
+mueve la llave inglesa a la zona,mover,desconocido,ninguno,False
+agarra el cubo naranja,agarrar,cubo,ninguno,False
+trae la esfera morada,mover,esfera,ninguno,False
