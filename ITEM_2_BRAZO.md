@@ -135,7 +135,8 @@ ros2 run jetcobot_driver sync_plan_nx      # sustituye por el nombre real del dr
 ```bash
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_DE_TU_PC>:8000 -p timeout_laya_s:=2.0
 ```
-Si LAYA no responde, cae al clasificador (`degradada=True`) y la cadena sigue.
+**Parámetro útil para demo:** `-p forzar_clasificador:=true` fuerza el uso exclusivo del clasificador local (evita que LAYA confunda colores, p. ej. "verde"→"rojo").
+Si LAYA no responde o se fuerza, cae/va al clasificador (`degradada=True`) y la cadena sigue.
 
 ### T4 — Enviar la frase (cliente de texto)
 ```bash

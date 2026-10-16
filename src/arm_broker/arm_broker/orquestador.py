@@ -253,12 +253,14 @@ class NodoOrquestador(Node):
             except Exception as e:
                 self.get_logger().error(f'error procesando la orden: {e!r}')
 
-    # 6. Pose de búsqueda: coloca la cámara (montada en el brazo) frente a la mesa
+    # 6. Pose de búsqueda: coloca la cámara (montada en el brazo) frente a la mesa.
+    # Devuelve True si el brazo quedó EN la pose de búsqueda (o si no hacía falta moverse),
+    # y False si no se pudo alcanzar: en ese caso NO se debe escanear desde otra pose.
     def _ir_a_busqueda(self, prioridad):
         if not self.usar_pose_busqueda:
-            return
+            return True
         if self.camara is None or not self.camara.disponible:
-            return
+            return True
         origen_rad = poses.a_radianes(self._q_actual_grados())
         metas = poses.trozar(origen_rad, poses.a_radianes(self.pose_busqueda), self.paso)
         self.get_logger().info('🔎 POSE_BUSQUEDA: colocando la cámara frente a la mesa')
@@ -266,9 +268,10 @@ class NodoOrquestador(Node):
             exito, motivo, _, _ = self._enviar_goal(q_rad, prioridad)
             if not exito:
                 self.get_logger().warn(f'no se alcanzó POSE_BUSQUEDA: {motivo}')
-                return
+                return False
         if self.espera_busqueda > 0.0:
             time.sleep(self.espera_busqueda)
+        return True
 
     # 6b. Ubicación del color con cámara (SIN respaldo: la posición siempre sale de la cámara)
     def _ubicar(self, color):
@@ -288,7 +291,10 @@ class NodoOrquestador(Node):
         frase = decision.get('frase', '')
         prioridad = decision['_priority']
 
-        self._ir_a_busqueda(prioridad)
+        if not self._ir_a_busqueda(prioridad):
+            self._rechazar(decision, 'no_busqueda',
+                           'no se pudo colocar el brazo en POSE_BUSQUEDA para escanear')
+            return
 
         posicion = self._ubicar(color)
         if posicion is None:

@@ -27,12 +27,16 @@ class NodoInterprete(Node):
         self.declare_parameter('objetos', ['cubo', 'cilindro', 'esfera'])
         self.declare_parameter('colores', ['rojo', 'verde', 'azul', 'amarillo'])
         self.declare_parameter('acciones', ['agarrar', 'soltar', 'mover', 'detener'])
+        # Si es True, se SALTA LAYA y se resuelve siempre con el clasificador local por
+        # palabras clave (determinista). Útil para la demo cuando LAYA confunde colores.
+        self.declare_parameter('forzar_clasificador', False)
 
         self.endpoint_laya = str(self.get_parameter('laya_url').value).rstrip('/')
         self.limite_laya = float(self.get_parameter('timeout_laya_s').value)
         self.catalogo_objetos = list(self.get_parameter('objetos').value)
         self.catalogo_colores = list(self.get_parameter('colores').value)
         self.catalogo_acciones = list(self.get_parameter('acciones').value)
+        self.forzar_local = bool(self.get_parameter('forzar_clasificador').value)
 
         # La clave de LAYA (si el servidor del laboratorio la exige) sale de una variable de
         # entorno; NUNCA va escrita en este archivo ni se sube al repositorio.
@@ -60,14 +64,17 @@ class NodoInterprete(Node):
         self.get_logger().info('  servicio      : /interpretar_orden')
         self.get_logger().info(f'  LAYA           : {self.endpoint_laya}')
         self.get_logger().info(f'  timeout_laya_s : {self.limite_laya}')
+        self.get_logger().info(f'  forzar_clasif. : {self.forzar_local}')
         self.get_logger().info('=' * 60)
 
     def atender(self, solicitud, respuesta):
-        """Resuelve una frase: primero intenta LAYA (salvo forzar_clasificador=True) y, cuando no
-        hay respuesta a tiempo, cae al clasificador local. Nunca deja al cliente esperando más
-        de timeout_laya_s más el tiempo (corto) del clasificador."""
+        """Resuelve una frase: primero intenta LAYA (salvo forzar_clasificador=True en la petición
+        o en el parámetro del nodo), y cuando no hay respuesta a tiempo, cae al clasificador local.
+        Nunca deja al cliente esperando más de timeout_laya_s más el tiempo (corto) del
+        clasificador."""
         frase = solicitud.frase.strip()
         t0 = time.time()
+        forzar = bool(solicitud.forzar_clasificador) or self.forzar_local
 
         if not frase:
             self._volcar(respuesta, accion='desconocido', objeto='desconocido', color='ninguno',
@@ -76,7 +83,7 @@ class NodoInterprete(Node):
             self.get_logger().warn('[interprete_ordenes] frase vacía recibida')
             return respuesta
 
-        if not solicitud.forzar_clasificador:
+        if not forzar:
             try:
                 decision, _crudo = cliente_laya.preguntar(
                     self.endpoint_laya, self.clave_laya, frase, self.limite_laya,
@@ -106,7 +113,7 @@ class NodoInterprete(Node):
         self._volcar(respuesta, **decision, degradada=True, fuente='palabras_clave',
                      t_total=t_total, t_red=0.0, t_computo=0.0)
 
-        etiqueta = '🔁 [CLASIFICADOR, pedido]' if solicitud.forzar_clasificador else '⚠️  [DEGRADADA]'
+        etiqueta = '🔁 [CLASIFICADOR, pedido]' if forzar else '⚠️  [DEGRADADA]'
         self.get_logger().info(
             f'{etiqueta} "{frase}" → {respuesta.accion}/{respuesta.objeto}/{respuesta.color} '
             f'p={respuesta.prioridad} permitido={respuesta.permitido} '
