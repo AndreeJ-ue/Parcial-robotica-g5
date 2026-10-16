@@ -127,7 +127,9 @@ class Pinza:
             self.nodo.get_logger().warn('[PINZA] la acción no devolvió resultado de pinza')
             return False
         r = resultado.result().result
-        return bool(getattr(r, 'reached_goal', True) or getattr(r, 'stalled', False))
+        # Éxito = la pinza LLEGÓ a la posición. No se acepta 'stalled' como éxito: nuestro
+        # servidor_pinza marca reached_goal=False en cualquier fallo (ver servidor_pinza.py).
+        return bool(getattr(r, 'reached_goal', False))
 
     @staticmethod
     def _esperar(futuro, timeout_s=3.0):

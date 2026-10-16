@@ -16,12 +16,16 @@ La cámara va montada en el brazo: la detección solo es correcta con el brazo e
 orquestador se encarga de colocarlo ahí antes de leer.
 
 Publica en /objeto_detectado (std_msgs/String, JSON):
-    {color, presente, estable, cx, cy, t, mapa_estaciones, detecciones}
+    {color, presente, estable, cx, cy, t, mapa_estaciones, por_slot, mapa_confirmado, detecciones}
   - color           : color dominante (la mancha más grande de la imagen).
   - presente        : hay algún color en la imagen.
   - estable         : el MAPA COMPLETO {estación → color} se repitió 'confirmaciones' fotogramas.
   - mapa_estaciones : {"1": "rojo", "2": null, ...} -> color visto en cada estación.
-  - detecciones     : [{estacion, color, area, cx, cy}] (cx,cy en píxeles de la imagen).
+  - por_slot        : el MISMO mapa, con el nombre de clave de la percepción de referencia, para
+                      que la cadena no se rompa si conviven versiones distintas del orquestador.
+  - mapa_confirmado : SOLO las estaciones cuya racha POR ESQUINA llegó a 'confirmaciones' (una
+                      esquina parpadeante no reinicia a las demás). Es lo que usa el orquestador.
+  - detecciones     : [{estacion, slot, color, area, cx, cy}] (cx,cy en píxeles de la imagen).
 
 Este nodo SOLO publica la detección: no mueve el brazo ni publica /joint_states.
 
@@ -40,7 +44,6 @@ from std_msgs.msg import String
 
 try:
     import cv2 as cv
-    import numpy as np
     from cv_bridge import CvBridge
     VISION_DISPONIBLE = True
 except ImportError as _e:                       # en la Jetson con ROS estas libs están; la
@@ -90,6 +93,7 @@ class PercepcionCamara(Node):
 
         self.ultimo_mapa = None           # clave del último mapa visto (para contar la racha)
         self.racha = 0
+        self.racha_est = {}               # {estación: [color, cuenta]} racha POR ESQUINA
         self.mapa_estable_previo = None
         self.n_frames = 0
         self.ultima_imagen_t = None       # None = todavía no llegó ninguna imagen
@@ -258,9 +262,10 @@ class PercepcionCamara(Node):
                 for nombre, franjas in COLORES.items():
                     mascara = None
                     for bajo, tope in franjas:
-                        m = cv.inRange(recorte, np.array(bajo), np.array(tope))
+                        m = cv.inRange(recorte, bajo, tope)
                         mascara = m if mascara is None else cv.bitwise_or(mascara, m)
                     mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
+                    mascara = cv.morphologyEx(mascara, cv.MORPH_CLOSE, kernel)
                     contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL,
                                                    cv.CHAIN_APPROX_SIMPLE)
                     if not contornos:
@@ -310,6 +315,19 @@ class PercepcionCamara(Node):
                 self.racha = 1
             estable = self.racha >= self.confirmaciones
 
+            # Estabilidad POR ESQUINA: cada estación se confirma por su cuenta, de modo que una
+            # esquina que parpadea (detalle en el borde, área oscilando) NO reinicia la racha de
+            # las demás. Es lo que de verdad necesita el orquestador para resolver el color.
+            confirmado = {}
+            for est, c in mapa.items():
+                estado = self.racha_est.get(est)
+                if estado is not None and estado[0] == c:
+                    estado[1] += 1
+                else:
+                    self.racha_est[est] = [c, 1]
+                if c is not None and self.racha_est[est][1] >= self.confirmaciones:
+                    confirmado[est] = c
+
             # Log de TRANSICIÓN (no por frame): se ve en la terminal cada vez que el mapa estable
             # cambia. Es lo que el orquestador está esperando.
             if estable and clave != self.mapa_estable_previo:
@@ -321,10 +339,10 @@ class PercepcionCamara(Node):
 
             if self.log_periodico_s > 0:
                 self.get_logger().info(
-                    f'estado: mapa={mapa} estable={estable}',
+                    f'estado: mapa={mapa} confirmado={confirmado} estable={estable}',
                     throttle_duration_sec=self.log_periodico_s)
 
-        self._publicar(mapa, detalle, color, cx, cy, estable)
+        self._publicar(mapa, detalle, color, cx, cy, estable, confirmado)
 
     # 5. Callback del tópico ROS
     def _al_imagen(self, msg):
@@ -334,7 +352,7 @@ class PercepcionCamara(Node):
         if self._modo == 'local':
             return                                    # ya tomamos la fuente local
         if self.bridge is None:
-            self._publicar({}, {}, None, 0, 0, False)
+            self._publicar({}, {}, None, 0, 0, False, {})
             return
 
         try:
@@ -346,7 +364,15 @@ class PercepcionCamara(Node):
 
         self._procesar(imagen, f'ROS {msg.encoding} {msg.width}x{msg.height}')
 
-    def _publicar(self, mapa, detalle, color, cx, cy, estable):
+    def _publicar(self, mapa, detalle, color, cx, cy, estable, confirmado=None):
+        # Se publica el mapa bajo DOS claves equivalentes (mapa_estaciones y por_slot): así la
+        # misma percepción alimenta tanto a nuestro orquestador como a uno que espere la clave de
+        # la percepción de referencia, evitando rechazos 'color_no_encontrado' por desajuste.
+        # 'mapa_confirmado' lleva SOLO las esquinas confirmadas (racha por esquina), que es lo que
+        # usa el orquestador: así una esquina parpadeante no bloquea el color de otra.
+        confirmado = confirmado or {}
+        mapa_json = {str(e): mapa[e] for e in mapa}
+        conf_json = {str(e): confirmado[e] for e in confirmado}
         salida = String()
         salida.data = json.dumps({
             'color': color,
@@ -355,8 +381,10 @@ class PercepcionCamara(Node):
             'cx': int(cx),
             'cy': int(cy),
             't': time.time(),
-            'mapa_estaciones': {str(e): mapa[e] for e in mapa},
-            'detecciones': [dict(estacion=e, **detalle[e]) for e in detalle],
+            'mapa_estaciones': dict(mapa_json),
+            'por_slot': dict(mapa_json),
+            'mapa_confirmado': dict(conf_json),
+            'detecciones': [dict(estacion=e, slot=e, **detalle[e]) for e in detalle],
         })
         self.pub.publish(salida)
 

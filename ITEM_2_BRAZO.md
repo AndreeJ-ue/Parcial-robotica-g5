@@ -24,7 +24,7 @@ cámara USB (/dev/videoX)  ─┐
 
 /orden_decidida ──► orquestador ──► goals move_arm ──► broker (cola) ──► /joint_states ──► brazo
                          │                                          (único publicador)
-                         └──► pinza (acción gripper_command / respaldo pymycobot)
+                         └──► pinza: servidor_pinza (acción gripper_command ─► pymycobot serie)
 ```
 
 ### Archivos (`src/arm_broker/arm_broker/`)
@@ -36,8 +36,9 @@ cámara USB (/dev/videoX)  ─┐
 | `poses.py` | Poses base (grados) + `a_radianes()` + `trozar()` + los **planes** (`secuencia_agarrar`, `secuencia_transportar`, `secuencia_completa`, `secuencia_soltar`). |
 | `percepcion_camara.py` | **Nodo ROS**: obtiene fotogramas del tópico `/image_raw` (`fuente=driver`) o abriendo la cámara con OpenCV (`fuente=local`); mide el color de cada estación (ROIs) y publica `/objeto_detectado`. Solo publica detección: no mueve el brazo. |
 | `orquestador.py` | Orquestador: decisión → rechazo previo → cola priorizada → `POSE_BUSQUEDA` → espera del mapa → planes → pinza. |
-| `gripper.py` | Pinza: vía **primaria** acción `gripper_command`, respaldo pymycobot, flag `gripper_habilitada`. |
-| `pinza_pymycobot.py` | Control directo de la pinza por puerto serie (respaldo). |
+| `gripper.py` | Cliente de la pinza: vía **primaria** acción `gripper_command`, respaldo por serie (pymycobot), flag `gripper_habilitada`. |
+| `servidor_pinza.py` | **Nodo ROS**: levanta el servidor de la acción `gripper_command` (que el driver del kit no ofrece) y la mueve con `pinza_pymycobot.py`. No publica `/joint_states`. |
+| `pinza_pymycobot.py` | Envoltorio del puerto serie de la pinza (pymycobot): `abrir()`, `cerrar()`, `ir_a(0..100)`. Lo usan el servidor y el respaldo de `gripper.py`. |
 | `intentos.py` | CSV de los intentos + error de cinemática directa en mm. |
 | `cliente_texto.py` | Cliente por teclado: llama `/interpretar_orden` y publica en `/orden_decidida`. |
 
@@ -102,8 +103,9 @@ por causa `paso` aunque se corra el broker con su default.
    color sin destino → `rechazos_orquestador.csv` (no se envía ningún goal).
 3. Cola **interna priorizada**: `priority = prioridad × 85` (uint8). Una orden completa a la vez.
 4. **Ir a `POSE_BUSQUEDA`** (coloca la cámara frente a la mesa).
-5. Esperar a que `percepcion_camara` publique un **mapa estable** `{estación → color}` que contenga
-   el color pedido; si no aparece en ninguna estación → rechazo `color_no_encontrado`.
+5. Esperar a que `percepcion_camara` **confirme la ESQUINA** del color pedido (estabilidad por
+   esquina en `mapa_confirmado`; una sola esquina parpadeante no bloquea a las demás); si no
+   aparece en ninguna estación → rechazo `color_no_encontrado`.
 6. `abrir pinza` → goal a la pose de agarre de la estación (**troceado**) → `cerrar pinza` → **goal de
    vuelta a `POSE_BUSQUEDA` (levanta el cubo y despeja la mesa)** → `reparto` → zona del color
    (**troceado**) → `abrir pinza` → `POSE_HOME`.
@@ -134,7 +136,8 @@ ros2 daemon stop; ros2 daemon start
 | Terminal | Nodo | Para qué |
 |---|---|---|
 | **T1** | `broker` | La cola: recibe goals `move_arm`, valida y es el **único** que publica `/joint_states`. |
-| **T2** | `sync_plan_nx` (driver del kit) | Traduce `/joint_states` a órdenes del brazo físico y la pinza. |
+| **T2** | `sync_plan_nx` (driver del kit) | Traduce `/joint_states` a órdenes del brazo físico. |
+| **T2b** | `servidor_pinza` | Levanta la acción `gripper_command` y mueve la pinza por el puerto serie (pymycobot). |
 | **T3** | `interprete_ordenes` | Ítem 1: convierte una frase en decisión tipada. |
 | **T4** | `cliente_texto` (o `transcriptor_voz`) | Envía la frase (teclado o voz). |
 | **T5** | `percepcion_camara` | Ítem 2: mira la cámara y publica el mapa `{estación → color}`. |
@@ -160,6 +163,16 @@ Debe verse el arranque del broker.
 ```bash
 ros2 run jetcobot_driver sync_plan_nx      # sustituye por el nombre real del driver
 ```
+
+### T2b — Servidor de la pinza (acción `gripper_command`)
+El driver del kit no expone la pinza, así que este nodo la levanta por pymycobot:
+```bash
+ros2 run arm_broker servidor_pinza --ros-args -p puerto:=/dev/ttyUSB0 -p velocidad:=50
+```
+Debe verse `🖐  pinza -> 100` al abrir y `🖐  pinza -> 15` al cerrar. Como el driver y este nodo
+comparten `/dev/ttyUSB0`, comprueba antes quién tiene el puerto (`fuser -v /dev/ttyUSB0`); si no se
+puede compartir, corre el orquestador con `-p gripper_habilitada:=false` y sigue el resto de la
+cadena.
 
 ### T3 — Intérprete de órdenes (ítem 1)
 ```bash
@@ -261,7 +274,7 @@ los cuadrantes de la imagen.
 | `espera_deteccion_s` | `6.0` | Cuánto espera el mapa estable con el color pedido. |
 | `timeout_goal_s` | `60.0` | Cuánto espera a que el broker termine un goal. |
 | `gripper_habilitada` | `true` | Encender el control de la pinza (`false` = no abre/cierra). |
-| `accion_pinza` | `gripper_command` | Vía primaria de la pinza (respaldo: `pinza_pymycobot`). |
+| `accion_pinza` | `gripper_command` | Acción de la pinza; la sirve el nodo `servidor_pinza` (respaldo directo por serie). |
 | `pinza_pos_abierta` / `pinza_pos_cerrada` | `100` / `15` | Posiciones de la pinza (escala del kit 0..100). |
 | `topico_decision` | `orden_decidida` | Tópico de la decisión ya interpretada. |
 | `topico_deteccion` | `objeto_detectado` | Tópico del mapa de percepción. |
@@ -319,10 +332,19 @@ ros2 topic echo /objeto_detectado
 - **Rechazo `paso`** → baja `paso_orquestador_rad` (≤ `paso_max_rad` del broker; el default 1.0 ya
   es seguro).
 - **`color_no_encontrado`** → comprueba con `calibrar_camara.py` que la cámara ve la mesa y que cada
-  cubo cae dentro de su cuadrante; verifica que el brazo esté en `POSE_BUSQUEDA`.
+  cubo cae dentro de su cuadrante; verifica que el brazo esté en `POSE_BUSQUEDA`. La percepción
+  publica el mapa bajo **dos claves equivalentes** (`mapa_estaciones` y `por_slot`) y el orquestador
+  acepta **ambas**, para que no se rechace por desajuste de clave entre versiones. Además publica
+  `mapa_confirmado` (solo las esquinas con racha suficiente); el orquestador prefiere esa clave, así
+  que una esquina parpadeante ya no impide encontrar el color de otra.
 - **No llega imagen / el driver corre pero no abre la cámara** → usa `-p fuente:=local` (la
   percepción abre el dispositivo `/dev/videoX` con OpenCV) o `-p fuente:=auto` para el respaldo
   automático. Revisa `/dev/video*` y el `indice_camara`. Diagnóstico: `ros2 topic hz /image_raw`
   (0 Hz = nadie publica).
-- **`gripper_command` no responde** → respaldo `pinza_pymycobot` por puerto serie.
+- **`gripper_command` no responde / la pinza no se mueve** → levanta el nodo `servidor_pinza` (T2b):
+  es quien sirve la acción. Si la acción existe pero la pinza no se mueve, el problema es el puerto
+  serie compartido: `fuser -v /dev/ttyUSB0` (¿lo tiene `sync_plan_nx`?) y `ls -l /dev/serial/by-id/`.
+  La pinza reintenta abrir el puerto en **modo compartido no exclusivo** (`exclusive=False`), y
+  `servidor_pinza` marca `reached_goal=False` en cualquier fallo (un fallo NO se reporta como éxito).
+  Mientras se resuelve, `-p gripper_habilitada:=false`.
 - **No hay MoveIt2/URDF/ros2_control** → la "IK" son las poses precalculadas de `poses.py`.

@@ -22,21 +22,23 @@ transcriptor_voz ──texto──────────┤        ┌──�
                      │  rechaza permitido=False │
                      │  + percepcion_camara     │
                      │  poses + pinza           │
-                     └────────────┬─────────────┘
-                                  │ goals move_arm
-                                  ▼
-                          broker (arm_broker)
-                         · ÚNICA cola de prioridad
-                         · ÚNICO publicador de /joint_states
-                                  │
-                                  ▼
-                       /joint_states ──► driver ──► brazo + pinza
+                      └──┬──────────┬──────────┘
+                         │ goals    │ gripper_command
+                         │ move_arm ▼
+                         │   servidor_pinza ──► pinza (serie)
+                         ▼
+                  broker (arm_broker)
+                 · ÚNICA cola de prioridad
+                 · ÚNICO publicador de /joint_states
+                         │
+                         ▼
+               /joint_states ──► driver ──► brazo
 ```
 
 ## Qué corre en cada máquina
 - **PC Windows**: `laya-serve` (decisión tipada, no necesita internet).
-- **Jetson (ROS 2)**: `broker`, `sync_plan_nx`, `interprete_ordenes`, `transcriptor_voz`,
-  `percepcion_camara`, `orquestador`.
+- **Jetson (ROS 2)**: `broker`, `sync_plan_nx`, `servidor_pinza`, `interprete_ordenes`,
+  `transcriptor_voz`, `percepcion_camara`, `orquestador`.
 - **Google AI Studio (internet)**: solo la transcripción de audio.
 
 ---
@@ -77,6 +79,16 @@ ros2 run arm_broker broker --ros-args -p politica:=prioridad -p tau_envejecimien
 ```bash
 ros2 run jetcobot_driver sync_plan_nx
 ```
+
+### T2b — Servidor de la pinza (acción `gripper_command`)
+El driver del kit NO expone la acción de la pinza, así que este nodo la levanta por pymycobot.
+```bash
+ros2 run arm_broker servidor_pinza --ros-args -p puerto:=/dev/ttyUSB0 -p velocidad:=50
+```
+> **Ojo con el puerto serie**: `sync_plan_nx` y `servidor_pinza` comparten `/dev/ttyUSB0`. Antes de
+> la demo comprueba quién lo tiene (`fuser -v /dev/ttyUSB0`) y que la acción aparezca
+> (`ros2 action list -t | grep gripper_command`). Si no se puede compartir, corre el orquestador
+> con `-p gripper_habilitada:=false` para demostrar el resto de la cadena sin cerrar la pinza.
 
 ### T3 — Intérprete de órdenes (ítem 1)
 ```bash

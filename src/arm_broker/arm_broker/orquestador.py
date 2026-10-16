@@ -214,12 +214,27 @@ class NodoOrquestador(Node):
         with self.lock:
             return dict(self.deteccion) if self.deteccion else None
 
+    @staticmethod
+    def _mapa_bruto(det):
+        """Devuelve el mapa {clave → color} de la detección, venga bajo 'mapa_estaciones'
+        (nuestra percepción) o bajo 'por_slot' (la percepción de referencia). Se aceptan ambas
+        claves para que la cadena no se rompa si conviven versiones distintas de la percepción:
+        un desajuste de clave aquí provoca un rechazo 'color_no_encontrado'."""
+        return det.get('mapa_estaciones') or det.get('por_slot') or {}
+
+    @staticmethod
+    def _mapa_confirmado(det):
+        """Devuelve las esquinas CONFIRMADAS por la percepción (mapa_confirmado), o None si la
+        percepción no publica esa clave (versión vieja): entonces se cae al mapa completo + 'estable'.
+        Se prefiere el mapa por esquina porque una esquina parpadeante ya no bloquea a las demás."""
+        return det.get('mapa_confirmado')
+
     def _mapa_estaciones(self):
         """Devuelve {estación:int → color:str} de la última detección, o {} si no hay nada."""
         det = self._snapshot_deteccion()
         if not det:
             return {}
-        bruto = det.get('mapa_estaciones') or {}
+        bruto = self._mapa_bruto(det)
         mapa = {}
         for e, c in bruto.items():
             try:
@@ -234,8 +249,17 @@ class NodoOrquestador(Node):
         limite = time.time() + self.espera_deteccion
         while time.time() < limite and rclpy.ok():
             det = self._snapshot_deteccion()
-            if det and det.get('estable'):
-                for e, c in (det.get('mapa_estaciones') or {}).items():
+            if det:
+                confirmado = self._mapa_confirmado(det)
+                if confirmado is not None:
+                    # Percepción nueva: basta con que la ESQUINA del color esté confirmada.
+                    bruto = confirmado
+                elif det.get('estable'):
+                    # Percepción vieja: se exige el mapa completo estable (comportamiento previo).
+                    bruto = self._mapa_bruto(det)
+                else:
+                    bruto = {}
+                for e, c in bruto.items():
                     if c == color:
                         try:
                             return int(e)

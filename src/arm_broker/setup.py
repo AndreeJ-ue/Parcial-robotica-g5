@@ -28,6 +28,8 @@ setup(
             'orquestador = arm_broker.orquestador:main',
             # Ítem 2: nodo de percepción por color (cámara montada en el brazo)
             'percepcion_camara = arm_broker.percepcion_camara:main',
+            # Ítem 2: servidor de la pinza (acción gripper_command vía pymycobot)
+            'servidor_pinza = arm_broker.servidor_pinza:main',
             # Ítem 2: cliente de frases por teclado para pruebas
             'cliente_texto = arm_broker.cliente_texto:main',
         ],
