@@ -1,12 +1,19 @@
 """ Nodo de percepción por color de la cámara montada en el brazo — Ítem 2 (Pregunta 2) """
 
-""" El driver de la cámara publica sensor_msgs/Image (por defecto en /image_raw). Este nodo lo
-suscribe, pasa el fotograma a OpenCV con cv_bridge y mira el color de CADA estación (los
-rectángulos de estaciones.py). Con eso arma un MAPA {estación → color}, que es lo que permite
-"encontrar" el color pedido sin importar en qué esquina esté.
+""" Este nodo obtiene fotogramas de DOS formas posibles (parámetro 'fuente'):
+  - 'driver': los suscribe de un tópico ROS sensor_msgs/Image (p. ej. el driver usb_cam).
+  - 'local' : abre la cámara directamente con OpenCV (cv2.VideoCapture) y lee los frames él mismo.
+  - 'auto'  : intenta el tópico y, si no llega NINGUNA imagen, abre la cámara por su cuenta.
 
-La cámara va montada en el brazo, así que la detección solo es correcta con el brazo en
-POSE_BUSQUEDA; el orquestador se encarga de colocarlo ahí antes de leer.
+La opción local existe porque en el kit el driver puede arrancar pero NO abrir la cámara: en ese
+caso nadie publica en /image_raw y hay que tomar el dispositivo (/dev/videoX) directamente.
+
+Con el fotograma en OpenCV se mira el color de CADA estación (los rectángulos de estaciones.py) y
+se arma un MAPA {estación → color}, que es lo que permite "encontrar" el color pedido sin importar
+en qué esquina esté.
+
+La cámara va montada en el brazo: la detección solo es correcta con el brazo en POSE_BUSQUEDA; el
+orquestador se encarga de colocarlo ahí antes de leer.
 
 Publica en /objeto_detectado (std_msgs/String, JSON):
     {color, presente, estable, cx, cy, t, mapa_estaciones, detecciones}
@@ -18,11 +25,12 @@ Publica en /objeto_detectado (std_msgs/String, JSON):
 
 Este nodo SOLO publica la detección: no mueve el brazo ni publica /joint_states.
 
-Incluye un watchdog que avisa si no llega ninguna imagen en 'watchdog_s' segundos (casi siempre
-un tópico mal configurado) y un log de TRANSICIÓN cada vez que el mapa estable cambia, para ver
-en vivo que sí se está viendo la mesa sin llenar la consola de un print por frame. """
+Incluye un watchdog que avisa si no llega ninguna imagen en 'watchdog_s' segundos, lista los tópicos
+de imagen disponibles y (con fuente 'auto') pasa a la cámara local; además registra un log de
+TRANSICIÓN cada vez que el mapa estable cambia, para ver en vivo que sí se está viendo la mesa. """
 
 import json
+import threading
 import time
 
 import rclpy
@@ -59,6 +67,10 @@ class PercepcionCamara(Node):
 
         self.declare_parameter('topico_imagen', '/image_raw')
         self.declare_parameter('topico_salida', '/objeto_detectado')
+        self.declare_parameter('fuente', 'auto')              # auto | driver | local
+        self.declare_parameter('indice_camara', -1)           # -1 = autodetecta 0..3
+        self.declare_parameter('ancho_camara', 640)
+        self.declare_parameter('alto_camara', 480)
         self.declare_parameter('area_min', 300)               # píxeles mínimos del manchón de color
         self.declare_parameter('confirmaciones', 5)           # fotogramas iguales para "estable"
         self.declare_parameter('watchdog_s', 5.0)             # avisa si no llegan imágenes
@@ -68,6 +80,13 @@ class PercepcionCamara(Node):
         self.confirmaciones = int(self.get_parameter('confirmaciones').value)
         self.watchdog_s = float(self.get_parameter('watchdog_s').value)
         self.log_periodico_s = float(self.get_parameter('log_estado_periodico_s').value)
+        self.fuente = str(self.get_parameter('fuente').value).strip().lower()
+        self.indice_camara = int(self.get_parameter('indice_camara').value)
+        self.ancho_camara = int(self.get_parameter('ancho_camara').value)
+        self.alto_camara = int(self.get_parameter('alto_camara').value)
+        if self.fuente not in ('auto', 'driver', 'local'):
+            self.get_logger().warn(f"fuente desconocida '{self.fuente}'; uso 'auto'")
+            self.fuente = 'auto'
 
         self.ultimo_mapa = None           # clave del último mapa visto (para contar la racha)
         self.racha = 0
@@ -75,6 +94,11 @@ class PercepcionCamara(Node):
         self.n_frames = 0
         self.ultima_imagen_t = None       # None = todavía no llegó ninguna imagen
         self._watchdog_avisado = False
+        self._modo = None                 # 'driver' o 'local' según quién entrega los frames
+        self._lock = threading.Lock()     # protege el estado compartido entre hilo e executor
+        self._parar = threading.Event()
+        self._captura = None              # cv2.VideoCapture de la cámara local
+        self._hilo = None                 # hilo que lee la cámara local
 
         self.pub = self.create_publisher(
             String, str(self.get_parameter('topico_salida').value), 10)
@@ -87,30 +111,46 @@ class PercepcionCamara(Node):
                 f'falta OpenCV/cv_bridge ({_FALTA_VISION}); el nodo publicará vacío. '
                 f'Instala python3-opencv y cv_bridge.')
 
-        self.create_subscription(
-            Image, str(self.get_parameter('topico_imagen').value), self._al_imagen, 10)
+        if self.fuente in ('driver', 'auto'):
+            self.create_subscription(
+                Image, str(self.get_parameter('topico_imagen').value), self._al_imagen, 10)
+            self._modo = 'driver'
+
+        if self.fuente == 'local':
+            self._iniciar_local()
+
         self.create_timer(1.0, self._chequear_watchdog)
 
         self.get_logger().info('=' * 60)
         self.get_logger().info('  PERCEPCION_CAMARA LISTO (detección por 4 estaciones)')
+        self.get_logger().info(f'  fuente : {self.fuente}')
         self.get_logger().info(f'  imagen : {self.get_parameter("topico_imagen").value}')
         self.get_logger().info(f'  salida : {self.get_parameter("topico_salida").value}')
         for est, datos in estaciones.ESTACIONES.items():
             self.get_logger().info(f'  estación {est}: roi={datos["roi"]}')
         self.get_logger().info('=' * 60)
 
-    # 1. Watchdog
+    # 1. Watchdog y tópicos de imagen
     def _chequear_watchdog(self):
-        """Avisa UNA vez si nunca llegó una imagen, o cada watchdog_s si el flujo se corta."""
+        """Avisa UNA vez si nunca llegó una imagen, o cada watchdog_s si el flujo se corta.
+
+        Con fuente 'auto', si el tópico no entrega nada, pasa a la cámara local (el driver del kit
+        puede arrancar sin abrir la cámara)."""
         ahora = time.time()
         if self.ultima_imagen_t is None:
             if not self._watchdog_avisado and self.watchdog_s > 0:
                 self._watchdog_avisado = True
                 topico = self.get_parameter('topico_imagen').value
+                otros = self._topicos_imagen()
+                pista = (f' · tópicos de imagen publicados: {otros}' if otros
+                         else ' · no hay ningún tópico sensor_msgs/Image publicado')
                 self.get_logger().error(
-                    f'⚠️  no llegó NINGUNA imagen en {topico} tras {self.watchdog_s:.0f}s. '
-                    f'Comprueba con: ros2 topic list · ros2 topic hz {topico} · '
-                    f'ros2 topic info {topico} -v (el driver publica por defecto en /image_raw)')
+                    f'⚠️  no llegó NINGUNA imagen en {topico} tras {self.watchdog_s:.0f}s{pista}. '
+                    f'Prueba -p fuente:=local (la percepción abre la cámara con OpenCV) o arranca '
+                    f'el driver: ros2 run usb_cam usb_cam_node_exe')
+                if self.fuente == 'auto':
+                    self.get_logger().warn('fuente=auto: paso a la cámara local')
+                    self._iniciar_local()
             return
         if ahora - self.ultima_imagen_t > self.watchdog_s:
             self.get_logger().warn(
@@ -118,7 +158,80 @@ class PercepcionCamara(Node):
                 f'(¿se cayó la cámara?)',
                 throttle_duration_sec=self.watchdog_s)
 
-    # 2. Detección por estación
+    def _topicos_imagen(self):
+        """Nombres de los tópicos sensor_msgs/Image vivos ahora mismo (para el mensaje de error)."""
+        encontrados = []
+        try:
+            for nombre, tipos in self.get_topic_names_and_types():
+                if 'sensor_msgs/msg/Image' in tipos:
+                    encontrados.append(nombre)
+        except Exception:
+            pass
+        return encontrados
+
+    # 2. Fuente local (OpenCV)
+    def _abrir_camara_local(self):
+        """Prueba index 0..3 (o el forzado) y devuelve un cv2.VideoCapture abierto, o None."""
+        indices = [self.indice_camara] if self.indice_camara >= 0 else [0, 1, 2, 3]
+        for i in indices:
+            cap = cv.VideoCapture(i)
+            if cap.isOpened():
+                cap.set(cv.CAP_PROP_FRAME_WIDTH, self.ancho_camara)
+                cap.set(cv.CAP_PROP_FRAME_HEIGHT, self.alto_camara)
+                ok, frame = cap.read()
+                if ok and frame is not None:
+                    self.get_logger().info(
+                        f'📷 cámara local abierta en índice {i} '
+                        f'({frame.shape[1]}x{frame.shape[0]})')
+                    return cap
+            cap.release()
+        return None
+
+    def _iniciar_local(self):
+        """Abre la cámara local y arranca el hilo lector. Devuelve True si quedó andando."""
+        if not VISION_DISPONIBLE:
+            self.get_logger().error(
+                f'no puedo abrir la cámara local: falta OpenCV ({_FALTA_VISION})')
+            return False
+        if self._hilo is not None and self._hilo.is_alive():
+            return True
+        self._captura = self._abrir_camara_local()
+        if self._captura is None:
+            self.get_logger().error(
+                'no encontré ninguna cámara abrible con OpenCV '
+                '(prueba -p indice_camara:=0 y revisa /dev/video*)')
+            return False
+        self._modo = 'local'
+        self._hilo = threading.Thread(target=self._hilo_local, name='camara_local', daemon=True)
+        self._hilo.start()
+        return True
+
+    def _hilo_local(self):
+        """Lee frames de la cámara local y los procesa igual que los del tópico ROS."""
+        while rclpy.ok() and not self._parar.is_set():
+            cap = self._captura
+            if cap is None:
+                break
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                self.get_logger().warn('la cámara local no entregó frame',
+                                       throttle_duration_sec=2.0)
+                time.sleep(0.1)
+                continue
+            self.ultima_imagen_t = time.time()
+            self._procesar(frame, 'cámara local')
+
+    def _cerrar(self):
+        """Para el hilo y libera la cámara local (se llama al apagar el nodo)."""
+        self._parar.set()
+        if self._captura is not None:
+            try:
+                self._captura.release()
+            except Exception:
+                pass
+            self._captura = None
+
+    # 3. Detección por estación
     def _detectar(self, imagen):
         """Mira el color dentro de cada estación (rectángulo de estaciones.py).
 
@@ -171,28 +284,9 @@ class PercepcionCamara(Node):
 
         return mapa, detalle
 
-    # 3. Callback de imagen
-    def _al_imagen(self, msg):
-        # Marcar la llegada de ESTA imagen de inmediato: así el watchdog calla aunque la
-        # conversión o la detección fallen más abajo.
-        self.ultima_imagen_t = time.time()
-        self.n_frames += 1
-        if self.n_frames == 1:
-            self.get_logger().info(
-                f'📷 primera imagen en {self.get_parameter("topico_imagen").value} '
-                f'({msg.width}x{msg.height}, encoding={msg.encoding})')
-
-        if self.bridge is None:
-            self._publicar({}, {}, None, 0, 0, False)
-            return
-
-        try:
-            imagen = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        except Exception as e:
-            self.get_logger().warn(f'no pude convertir la imagen: {e!r}',
-                                   throttle_duration_sec=2.0)
-            return
-
+    # 4. Procesado común (tópico ROS o cámara local)
+    def _procesar(self, imagen, origen):
+        """Detección + racha/estable + logs + publicación. Igual para cualquier fuente."""
         mapa, detalle = self._detectar(imagen)
 
         # Color dominante global (la mancha más grande), por compatibilidad con el formato viejo.
@@ -204,28 +298,53 @@ class PercepcionCamara(Node):
 
         # Racha de fotogramas con el MISMO mapa {estación → color}.
         clave = tuple((e, mapa[e]) for e in sorted(mapa))
-        if clave == self.ultimo_mapa:
-            self.racha += 1
-        else:
-            self.ultimo_mapa = clave
-            self.racha = 1
-        estable = self.racha >= self.confirmaciones
+        with self._lock:
+            self.n_frames += 1
+            if self.n_frames == 1:
+                self.get_logger().info(
+                    f'📷 primera imagen ({origen}) {imagen.shape[1]}x{imagen.shape[0]}')
+            if clave == self.ultimo_mapa:
+                self.racha += 1
+            else:
+                self.ultimo_mapa = clave
+                self.racha = 1
+            estable = self.racha >= self.confirmaciones
 
-        # Log de TRANSICIÓN (no por frame): se ve en la terminal cada vez que el mapa estable
-        # cambia. Es lo que el orquestador está esperando.
-        if estable and clave != self.mapa_estable_previo:
-            self.mapa_estable_previo = clave
-            self.get_logger().info(f'🎯 mapa ESTABLE: {mapa}  ({detalle})')
-        elif not estable and self.mapa_estable_previo is not None and self.racha == 1:
-            self.get_logger().info(f'… mapa inestable: {mapa}')
-            self.mapa_estable_previo = None
+            # Log de TRANSICIÓN (no por frame): se ve en la terminal cada vez que el mapa estable
+            # cambia. Es lo que el orquestador está esperando.
+            if estable and clave != self.mapa_estable_previo:
+                self.mapa_estable_previo = clave
+                self.get_logger().info(f'🎯 mapa ESTABLE: {mapa}  ({detalle})')
+            elif not estable and self.mapa_estable_previo is not None and self.racha == 1:
+                self.get_logger().info(f'… mapa inestable: {mapa}')
+                self.mapa_estable_previo = None
 
-        if self.log_periodico_s > 0:
-            self.get_logger().info(
-                f'estado: mapa={mapa} estable={estable}',
-                throttle_duration_sec=self.log_periodico_s)
+            if self.log_periodico_s > 0:
+                self.get_logger().info(
+                    f'estado: mapa={mapa} estable={estable}',
+                    throttle_duration_sec=self.log_periodico_s)
 
         self._publicar(mapa, detalle, color, cx, cy, estable)
+
+    # 5. Callback del tópico ROS
+    def _al_imagen(self, msg):
+        # Marcar la llegada de ESTA imagen de inmediato: así el watchdog calla aunque la
+        # conversión o la detección fallen más abajo.
+        self.ultima_imagen_t = time.time()
+        if self._modo == 'local':
+            return                                    # ya tomamos la fuente local
+        if self.bridge is None:
+            self._publicar({}, {}, None, 0, 0, False)
+            return
+
+        try:
+            imagen = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().warn(f'no pude convertir la imagen: {e!r}',
+                                   throttle_duration_sec=2.0)
+            return
+
+        self._procesar(imagen, f'ROS {msg.encoding} {msg.width}x{msg.height}')
 
     def _publicar(self, mapa, detalle, color, cx, cy, estable):
         salida = String()
@@ -250,6 +369,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        nodo._cerrar()
         nodo.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

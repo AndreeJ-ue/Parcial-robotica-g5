@@ -107,8 +107,11 @@ ros2 run arm_broker transcriptor_voz --ros-args -p fuente:=teclado -p n_ordenes:
 
 ### T5 — Percepción (ítem 2): mira la cámara
 ```bash
-ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw -p confirmaciones:=5
+ros2 run arm_broker percepcion_camara --ros-args -p fuente:=local -p confirmaciones:=5
 ```
+Usa `-p fuente:=local` (la percepción abre la cámara con OpenCV) cuando el driver del kit no abre la
+cámara; `-p fuente:=driver` si un driver sí publica en `/image_raw`; `-p fuente:=auto` hace el
+respaldo automático.
 
 ### T6 — Orquestador (ítem 2): mueve el brazo
 ```bash

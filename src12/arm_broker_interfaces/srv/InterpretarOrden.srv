@@ -1,0 +1,23 @@
+# Servicio /interpretar_orden — Pregunta 1 del Parcial (Gran Reto JetCobot)
+# Traduce una frase en español en una decisión TIPADA (nunca texto libre).
+
+# ---- Petición ----
+string frase                 # la frase ya transcrita o escrita por el operador
+bool forzar_clasificador     # true = ignora LAYA y resuelve solo con el clasificador local
+                              # (sirve para medir la exactitud del clasificador por separado)
+---
+# ---- Respuesta: decisión tipada ----
+string accion                # agarrar | soltar | mover | detener | desconocido
+string objeto                # cubo | cilindro | esfera | ... | desconocido
+string color                 # rojo | verde | azul | amarillo | ninguno
+int32 prioridad              # 0..255, mayor número = más urgente
+bool permitido                # false si la orden no se puede ejecutar
+string motivo                 # por qué no está permitida; vacío si sí lo está
+
+# ---- Metadatos para medir el Ítem 1 (no son parte del mínimo pedido, pero facilitan
+#      reportar lo que pide el enunciado sin tener que recalcular nada aparte) ----
+bool degradada                # true si respondió el clasificador local, no LAYA
+string fuente                  # "laya" o "palabras_clave"
+float64 tiempo_total_s         # tiempo total que tardó en resolverse esta orden
+float64 tiempo_red_s           # estimado de cuánto de ese tiempo es puramente red
+float64 tiempo_computo_s       # estimado de cuánto es cómputo del servidor LAYA

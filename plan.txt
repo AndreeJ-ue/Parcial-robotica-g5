@@ -7,7 +7,7 @@ aparte. La cámara va MONTADA EN EL BRAZO, así que la percepción solo es váli
 POSE_BUSQUEDA.
 
 2. Arquitectura (ítem 2)
-   cámara (/image_raw) -> percepcion_camara -> /objeto_detectado  (JSON: {estación -> color})
+   cámara (/dev/videoX o /image_raw) -> percepcion_camara -> /objeto_detectado  (JSON: {estación -> color})
    /orden_decidida    -> orquestador -> goals move_arm -> broker -> /joint_states -> brazo
    Regla dura: SOLO el broker publica /joint_states.
 
@@ -15,7 +15,10 @@ POSE_BUSQUEDA.
    - estaciones.py        FUENTE ÚNICA DE VERDAD: 4 ROIs (cuadrantes de la imagen) + pose de
                           agarre por estación (grados).
    - poses.py             poses base + a_radianes() + trozar() + planes (secuencia_*).
-   - percepcion_camara.py NODO ROS: mide el color de cada estación y publica el mapa.
+   - percepcion_camara.py NODO ROS: mide el color de cada estación y publica el mapa. Obtiene la
+                          imagen por 'fuente': driver (tópico /image_raw) | local (abre la cámara
+                          con OpenCV) | auto (tópico y, si no llega, cámara local). Se usa 'local'
+                          cuando el driver del kit arranca pero NO abre la cámara.
    - orquestador.py       decisión -> rechazo previo -> cola -> POSE_BUSQUEDA -> mapa -> planes.
    - validez.py           reglas duras compartidas (acción válida + vetadas).
    - cliente_laya.py      HTTP contra LAYA, con permitido fail-safe y catálogo cerrado.

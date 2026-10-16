@@ -16,9 +16,12 @@ de colores; el orquestador solo consume ese mapa por tópico. Así visión y mov
 desacoplados.
 
 ```
-cámara (drv usb_cam, /image_raw) ──► percepcion_camara ──► /objeto_detectado (JSON)
-                                                                │  {estación → color}
-                                                                ▼
+cámara USB (/dev/videoX)  ─┐
+   (fuente=local: OpenCV   │
+    la abre él mismo;      ├─► percepcion_camara ─► /objeto_detectado (JSON)
+    fuente=driver: se      │     {estación → color}
+    suscribe /image_raw)  ─┘
+
 /orden_decidida ──► orquestador ──► goals move_arm ──► broker (cola) ──► /joint_states ──► brazo
                          │                                          (único publicador)
                          └──► pinza (acción gripper_command / respaldo pymycobot)
@@ -31,7 +34,7 @@ cámara (drv usb_cam, /image_raw) ──► percepcion_camara ──► /objeto_
 | `broker.py` | Servidor de `move_arm`: admite, encola (FIFO/prioridad), valida con FK y es el ÚNICO publicador de `/joint_states`. **No se modifica.** |
 | `estaciones.py` | **Fuente única de verdad**: los 4 rectángulos (ROI) de estación y la pose de agarre de cada una (grados). |
 | `poses.py` | Poses base (grados) + `a_radianes()` + `trozar()` + los **planes** (`secuencia_agarrar`, `secuencia_transportar`, `secuencia_completa`, `secuencia_soltar`). |
-| `percepcion_camara.py` | **Nodo ROS**: suscribe `/image_raw`, mide el color de cada estación (ROIs) y publica `/objeto_detectado`. Solo publica detección: no mueve el brazo. |
+| `percepcion_camara.py` | **Nodo ROS**: obtiene fotogramas del tópico `/image_raw` (`fuente=driver`) o abriendo la cámara con OpenCV (`fuente=local`); mide el color de cada estación (ROIs) y publica `/objeto_detectado`. Solo publica detección: no mueve el brazo. |
 | `orquestador.py` | Orquestador: decisión → rechazo previo → cola priorizada → `POSE_BUSQUEDA` → espera del mapa → planes → pinza. |
 | `gripper.py` | Pinza: vía **primaria** acción `gripper_command`, respaldo pymycobot, flag `gripper_habilitada`. |
 | `pinza_pymycobot.py` | Control directo de la pinza por puerto serie (respaldo). |
@@ -137,8 +140,9 @@ ros2 daemon stop; ros2 daemon start
 | **T5** | `percepcion_camara` | Ítem 2: mira la cámara y publica el mapa `{estación → color}`. |
 | **T6** | `orquestador` | Ítem 2: consume el mapa + planes y manda los goals al broker. |
 
-Espera ~2–3 s entre uno y otro para que se descubran. El driver de la cámara (`usb_cam`) también
-tiene que estar publicando en `/image_raw`.
+Espera ~2–3 s entre uno y otro para que se descubran. La percepción toma la cámara de dos formas
+(`fuente`): abriéndola con OpenCV (`local`, recomendado si el driver no la abre) o suscribiendo
+`/image_raw` si un driver (`usb_cam`) sí publica.
 
 ### T1 — Broker (elige UNA política)
 
@@ -171,11 +175,23 @@ ros2 run arm_broker cliente_texto
 Escribe, por ejemplo: `agarra el cubo rojo`. Puedes enviar varias seguidas.
 
 ### T5 — Percepción (ítem 2)
+
+**Recomendado (la percepción abre la cámara sola, sin depender de un driver):**
 ```bash
 ros2 run arm_broker percepcion_camara --ros-args \
-  -p topico_imagen:=/image_raw -p topico_salida:=/objeto_detectado -p confirmaciones:=5
+  -p fuente:=local -p topico_salida:=/objeto_detectado -p confirmaciones:=5
 ```
-Debe verse `📷 primera imagen ...` y, al moverse el brazo a `POSE_BUSQUEDA`, `🎯 mapa ESTABLE: {...}`.
+Debe verse `📷 cámara local abierta en índice N`, luego `📷 primera imagen (cámara local) ...` y, al
+moverse el brazo a `POSE_BUSQUEDA`, `🎯 mapa ESTABLE: {...}`.
+
+**Si el driver de la cámara sí publica bien** (p. ej. `usb_cam`), se puede usar el tópico:
+```bash
+ros2 run arm_broker percepcion_camara --ros-args \
+  -p fuente:=driver -p topico_imagen:=/image_raw -p confirmaciones:=5
+```
+
+**Modo mixto** (`fuente:=auto`, por defecto): suscribe el tópico y, si no llega ninguna imagen en
+`watchdog_s`, abre la cámara local y avisa. Útil cuando el driver arranca pero **no** abre la cámara.
 
 ### T6 — Orquestador (ítem 2)
 ```bash
@@ -220,12 +236,19 @@ los cuadrantes de la imagen.
 ### Percepción (T5)
 | Parámetro | Ejemplo | Qué significa |
 |---|---|---|
-| `topico_imagen` | `/image_raw` | De dónde lee la imagen (driver de la cámara). |
+| `fuente` | `local` | De dónde salen los fotogramas: `driver` (tópico ROS), `local` (OpenCV abre la cámara) o `auto` (tópico y, si no llega, cámara local). |
+| `topico_imagen` | `/image_raw` | Tópico que se suscribe cuando `fuente` es `driver`/`auto`. |
 | `topico_salida` | `/objeto_detectado` | Dónde publica el mapa de estaciones (JSON). |
+| `indice_camara` | `-1` | Cámara para `fuente=local`: `-1` = autodetecta 0..3; si no, el índice forzado. |
+| `ancho_camara` / `alto_camara` | `640` / `480` | Resolución que se pide a la cámara local. |
 | `area_min` | `300` | Píxeles mínimos del manchón de color para contarlo. |
 | `confirmaciones` | `5` | Fotogramas seguidos con el mismo mapa para marcarlo `estable`. |
-| `watchdog_s` | `5.0` | Avisa si no llega imagen en este tiempo (tópico mal configurado). |
+| `watchdog_s` | `5.0` | Avisa si no llega imagen en este tiempo (y en `auto` dispara la cámara local). |
 | `log_estado_periodico_s` | `0.0` | `0` = apagado; `>0` = log cada N s. |
+
+> **Por qué `fuente:=local`:** en el kit el driver puede arrancar pero **no abrir la cámara**, así que
+> nadie publica en `/image_raw`. `local` toma el dispositivo (`/dev/videoX`) con OpenCV y no depende
+> del driver.
 
 ### Orquestador (T6)
 | Parámetro | Ejemplo | Qué significa |
@@ -297,7 +320,9 @@ ros2 topic echo /objeto_detectado
   es seguro).
 - **`color_no_encontrado`** → comprueba con `calibrar_camara.py` que la cámara ve la mesa y que cada
   cubo cae dentro de su cuadrante; verifica que el brazo esté en `POSE_BUSQUEDA`.
-- **No llega imagen** → revisa el `watchdog` de `percepcion_camara` y que el driver publique en
-  `/image_raw` (`ros2 topic hz /image_raw`).
+- **No llega imagen / el driver corre pero no abre la cámara** → usa `-p fuente:=local` (la
+  percepción abre el dispositivo `/dev/videoX` con OpenCV) o `-p fuente:=auto` para el respaldo
+  automático. Revisa `/dev/video*` y el `indice_camara`. Diagnóstico: `ros2 topic hz /image_raw`
+  (0 Hz = nadie publica).
 - **`gripper_command` no responde** → respaldo `pinza_pymycobot` por puerto serie.
 - **No hay MoveIt2/URDF/ros2_control** → la "IK" son las poses precalculadas de `poses.py`.
