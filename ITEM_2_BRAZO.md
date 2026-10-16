@@ -1,19 +1,23 @@
 # ÍTEM 2 — Mover el brazo (broker + percepción + orquestador + poses + pinza)
 
-Implementación de la Pregunta 2 del Parcial JetCobot. **El `broker.py` no se toca**: el orquestador
-solo envía *goals* `move_arm` y **suscribe** `/joint_states` en modo lectura.
+Implementación de la **Pregunta 2** del Parcial JetCobot. Cubre el **movimiento del brazo** de punta a
+punta: la percepción (nodo de visión) y el orquestador (que convierte una decisión en *goals*
+`move_arm`). **El `broker.py` no se toca**: el orquestador solo envía *goals* y **suscribe**
+`/joint_states` en modo lectura.
 
 > **Regla dura (no romper):** el **broker** es el **único** nodo que publica `/joint_states`. El
 > orquestador y el nodo de percepción solo **leen** (o no tocan) ese tópico. Si dos nodos publican
 > `/joint_states`, se anula el puntaje.
 
+La demo integrada de los 3 ítems (voz→brazo) está en `DEMO_VOZ_A_BRAZO.md`.
+
 ---
 
 ## 1. Arquitectura de este ítem
 
-La percepción es un **nodo ROS aparte** (`percepcion_camara`) que mira la cámara y publica el mapa
-de colores; el orquestador solo consume ese mapa por tópico. Así visión y movimiento quedan
-desacoplados.
+La percepción es un **nodo ROS aparte** (`percepcion_camara`) que mira la cámara y publica el mapa de
+colores; el orquestador solo consume ese mapa por tópico. Así **visión y movimiento quedan
+desacoplados**.
 
 ```
 cámara USB (/dev/videoX)  ─┐
@@ -34,13 +38,14 @@ cámara USB (/dev/videoX)  ─┐
 | `broker.py` | Servidor de `move_arm`: admite, encola (FIFO/prioridad), valida con FK y es el ÚNICO publicador de `/joint_states`. **No se modifica.** |
 | `estaciones.py` | **Fuente única de verdad**: los 4 rectángulos (ROI) de estación y la pose de agarre de cada una (grados). |
 | `poses.py` | Poses base (grados) + `a_radianes()` + `trozar()` + los **planes** (`secuencia_agarrar`, `secuencia_transportar`, `secuencia_completa`, `secuencia_soltar`). |
-| `percepcion_camara.py` | **Nodo ROS**: obtiene fotogramas del tópico `/image_raw` (`fuente=driver`) o abriendo la cámara con OpenCV (`fuente=local`); mide el color de cada estación (ROIs) y publica `/objeto_detectado`. Solo publica detección: no mueve el brazo. |
+| `percepcion_camara.py` | **Nodo ROS**: obtiene fotogramas del tópico `/image_raw` (`fuente=driver`) o abriendo la cámara con OpenCV (`fuente=local`); mide el color de cada estación (ROIs) y publica `/objeto_detectado`. Solo publica detección. |
 | `orquestador.py` | Orquestador: decisión → rechazo previo → cola priorizada → `POSE_BUSQUEDA` → espera del mapa → planes → pinza. |
 | `gripper.py` | Cliente de la pinza: vía **primaria** acción `gripper_command`, respaldo por serie (pymycobot), flag `gripper_habilitada`. |
-| `servidor_pinza.py` | **Nodo ROS**: levanta el servidor de la acción `gripper_command` (que el driver del kit no ofrece) y la mueve con `pinza_pymycobot.py`. No publica `/joint_states`. |
-| `pinza_pymycobot.py` | Envoltorio del puerto serie de la pinza (pymycobot): `abrir()`, `cerrar()`, `ir_a(0..100)`. Lo usan el servidor y el respaldo de `gripper.py`. |
-| `intentos.py` | CSV de los intentos + error de cinemática directa en mm. |
+| `servidor_pinza.py` | **Nodo ROS**: levanta el servidor de la acción `gripper_command` (que el driver del kit no ofrece) y mueve la pinza con `pinza_pymycobot.py`. No publica `/joint_states`. |
+| `pinza_pymycobot.py` | Envoltorio del puerto serie de la pinza (pymycobot): `abrir()`, `cerrar()`, `ir_a(0..100)`. |
+| `intentos.py` | CSV de los intentos + error de cinemática directa (FK) en mm. |
 | `cliente_texto.py` | Cliente por teclado: llama `/interpretar_orden` y publica en `/orden_decidida`. |
+| `politicas.py` | Ordenación de la cola (FIFO / prioridad con envejecimiento) usada por el broker. |
 
 Herramienta de verificación de visión: `herramientas/calibrar_camara.py`.
 
@@ -53,9 +58,9 @@ poses de la mesa (GRADOS) --poses.a_radianes()--> goal move_arm (RADIANES)
                                                /joint_states (GRADOS) → driver sync_plan_nx
 ```
 
-`MoveArm.action` dice `joint_positions` **(radianes)**. Los goals van en radianes; el broker es
-quien vuelve a grados para el driver, y el orquestador vuelve a radianes al **leer** `/joint_states`
-para medir el error de FK.
+`MoveArm.action` dice `joint_positions` **(radianes)**. Los *goals* van en radianes; el broker es
+quien vuelve a **grados** para el driver, y el orquestador vuelve a **radianes** al **leer**
+`/joint_states` para medir el error de FK.
 
 ## 3. Datos de calibración fijados
 
@@ -72,8 +77,8 @@ ESTACIONES = {
 }
 ```
 
-> Los rectángulos son los **cuadrantes** de la imagen (no hay nada que clicar). Si la resolución
-> real difiere de 640×480, `escalar_roi()` los reajusta sola.
+> Los rectángulos son los **cuadrantes** de la imagen (no hay nada que clicar). Si la resolución real
+> difiere de 640×480, `escalar_roi()` los reajusta sola.
 
 ### Poses base y destinos — `poses.py`
 ```python
@@ -88,29 +93,29 @@ DESTINOS = {                                   # zona de depósito fija por colo
 }
 ```
 
-> El **color no influye en la pose de agarre**: las poses son por **estación**. La cámara arma en
-> vivo el mapa `estación → color` (el color solo identifica el cubo) y la pose de agarre sale de la
-> estación donde se vio ese color.
+> El **color no influye en la pose de agarre**: las poses son por **estación**. La cámara arma en vivo
+> el mapa `estación → color` (el color solo identifica el cubo) y la pose de agarre sale de la estación
+> donde se vio ese color.
 
 **Troceado obligatorio:** el broker trae `paso_max_rad:=1.2` por defecto. El orquestador trocea cada
-tramo con `poses.trozar(..., paso_orquestador_rad=1.0)` (≤ el del broker), así que no hay rechazos
-por causa `paso` aunque se corra el broker con su default.
+tramo con `poses.trozar(..., paso_orquestador_rad=1.0)` (≤ el del broker), así no hay rechazos por
+causa `paso` aunque se corra el broker con su default.
 
 ## 4. Secuencia por orden ("agarra el cubo rojo")
 
 1. `/orden_decidida` (JSON del ítem 1/3).
 2. **Rechazo antes de encolar**: `permitido=False`, objeto/color desconocido, acción desconocida o
-   color sin destino → `rechazos_orquestador.csv` (no se envía ningún goal).
+   color sin destino → `rechazos_orquestador.csv` (no se envía ningún *goal*).
 3. Cola **interna priorizada**: `priority = prioridad × 85` (uint8). Una orden completa a la vez.
 4. **Ir a `POSE_BUSQUEDA`** (coloca la cámara frente a la mesa).
-5. Esperar a que `percepcion_camara` **confirme la ESQUINA** del color pedido (estabilidad por
-   esquina en `mapa_confirmado`; una sola esquina parpadeante no bloquea a las demás); si no
-   aparece en ninguna estación → rechazo `color_no_encontrado`.
-6. `abrir pinza` → goal a la pose de agarre de la estación (**troceado**) → `cerrar pinza` → **goal de
-   vuelta a `POSE_BUSQUEDA` (levanta el cubo y despeja la mesa)** → `reparto` → zona del color
+5. Esperar a que `percepcion_camara` **confirme la ESQUINA** del color pedido (estabilidad por esquina
+   en `mapa_confirmado`; una sola esquina parpadeante no bloquea a las demás); si no aparece en
+   ninguna estación → rechazo `color_no_encontrado`.
+6. `abrir pinza` → *goal* a la pose de agarre de la estación (**troceado**) → `cerrar pinza` →
+   **vuelta a `POSE_BUSQUEDA` (levanta el cubo y despeja la mesa)** → `reparto` → zona del color
    (**troceado**) → `abrir pinza` → `POSE_HOME`.
-7. Registro en `intentos.csv`: éxito y error de FK entre la pose de agarre solicitada y la alcanzada
-   (leída de `/joint_states`, solo lectura).
+7. Registro en `intentos.csv`: éxito y error de FK (mm) entre la pose de agarre solicitada y la
+   alcanzada (leída de `/joint_states`, solo lectura).
 
 **Estados:** si una 'agarrar' terminó bien, el orquestador queda con `cargando=True`; una 'mover'
 posterior **no vuelve a agarrar**, solo completa el transporte (`reparto → destino → abrir → home`).
@@ -124,24 +129,34 @@ Si una 'agarrar' falla, `cargando` queda en `False`.
 ```bash
 cd ~/rb2_ws
 source /opt/ros/humble/setup.bash
-colcon build --packages-select arm_broker_interfaces arm_broker --symlink-install
 source install/setup.bash
 export ROS_DOMAIN_ID=47                     # el que asigne el docente
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROS_DISCOVERY_SERVER="<IP_DEL_ROBOT>:11811"
 ros2 daemon stop; ros2 daemon start
 ```
+**Qué hace:** entra al workspace, carga ROS 2 y el paquete, fija dominio/middleware/descubrimiento y
+reinicia el daemon. Se repite en **cada** terminal nueva.
+
+### Paso 0 — Compilar (una sola vez)
+```bash
+cd ~/rb2_ws
+colcon build --packages-select arm_broker_interfaces arm_broker --symlink-install
+source install/setup.bash
+```
+**Qué hace:** compila solo los paquetes del proyecto (`--symlink-install` enlaza los `.py`, así los
+cambios de Python no requieren recompilar). Hay que `source` de nuevo tras compilar.
 
 ### Orden de arranque (una terminal = un nodo)
 | Terminal | Nodo | Para qué |
 |---|---|---|
-| **T1** | `broker` | La cola: recibe goals `move_arm`, valida y es el **único** que publica `/joint_states`. |
+| **T1** | `broker` | La cola: recibe *goals* `move_arm`, valida y es el **único** que publica `/joint_states`. |
 | **T2** | `sync_plan_nx` (driver del kit) | Traduce `/joint_states` a órdenes del brazo físico. |
 | **T2b** | `servidor_pinza` | Levanta la acción `gripper_command` y mueve la pinza por el puerto serie (pymycobot). |
 | **T3** | `interprete_ordenes` | Ítem 1: convierte una frase en decisión tipada. |
 | **T4** | `cliente_texto` (o `transcriptor_voz`) | Envía la frase (teclado o voz). |
 | **T5** | `percepcion_camara` | Ítem 2: mira la cámara y publica el mapa `{estación → color}`. |
-| **T6** | `orquestador` | Ítem 2: consume el mapa + planes y manda los goals al broker. |
+| **T6** | `orquestador` | Ítem 2: consume el mapa + planes y manda los *goals* al broker. |
 
 Espera ~2–3 s entre uno y otro para que se descubran. La percepción toma la cámara de dos formas
 (`fuente`): abriéndola con OpenCV (`local`, recomendado si el driver no la abre) o suscribiendo
@@ -149,7 +164,7 @@ Espera ~2–3 s entre uno y otro para que se descubran. La percepción toma la c
 
 ### T1 — Broker (elige UNA política)
 
-**FIFO**:
+**FIFO** (orden de llegada):
 ```bash
 ros2 run arm_broker broker --ros-args -p politica:=fifo -p paso_max_rad:=1.2 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1 -p cola_max:=20 -p archivo_rechazos:=rechazos.csv
 ```
@@ -157,51 +172,63 @@ ros2 run arm_broker broker --ros-args -p politica:=fifo -p paso_max_rad:=1.2 -p 
 ```bash
 ros2 run arm_broker broker --ros-args -p politica:=prioridad -p tau_envejecimiento_s:=12.0 -p paso_max_rad:=1.2 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1 -p cola_max:=20 -p archivo_rechazos:=rechazos.csv
 ```
-Debe verse el arranque del broker.
+**Qué hace:** arranca el servidor de `move_arm`. Con `fifo` atiende por llegada; con `prioridad` usa
+`score = prioridad + espera/tau`. **Por qué `duracion_movimiento_s:=5.0`:** el enunciado pide
+movimientos de ≥ 5 s.
 
 ### T2 — Driver del kit
 ```bash
-ros2 run jetcobot_driver sync_plan_nx      # sustituye por el nombre real del driver
+ros2 run jetcobot_driver sync_plan_nx
 ```
+**Qué hace:** abre el puerto serie del brazo y **traduce** cada mensaje `/joint_states` (en grados) a
+`send_angles()` de pymycobot. Es el único puente al hardware del brazo.
 
 ### T2b — Servidor de la pinza (acción `gripper_command`)
-El driver del kit no expone la pinza, así que este nodo la levanta por pymycobot:
+El driver del kit **no** expone la pinza, así que este nodo la levanta por pymycobot:
 ```bash
 ros2 run arm_broker servidor_pinza --ros-args -p puerto:=/dev/ttyUSB0 -p velocidad:=50
 ```
-Debe verse `🖐  pinza -> 100` al abrir y `🖐  pinza -> 15` al cerrar. Como el driver y este nodo
-comparten `/dev/ttyUSB0`, comprueba antes quién tiene el puerto (`fuser -v /dev/ttyUSB0`); si no se
-puede compartir, corre el orquestador con `-p gripper_habilitada:=false` y sigue el resto de la
-cadena.
+**Qué hace:** sirve la acción estándar `control_msgs/GripperCommand` y llama a `set_gripper_value()`
+en el puerto serie. Debe verse `🖐  pinza -> 100` al abrir y `🖐  pinza -> 15` al cerrar.
+
+> **Ojo con el puerto serie:** `sync_plan_nx` y `servidor_pinza` comparten `/dev/ttyUSB0` (brazo y
+> pinza viven en el mismo M5). Antes de la demo comprueba quién lo tiene (`fuser -v /dev/ttyUSB0`).
+> La pinza reintenta abrir el puerto en **modo compartido no exclusivo** (`exclusive=False`); si aun
+> así falla, corre el orquestador con `-p gripper_habilitada:=false` para seguir el resto de la
+> cadena sin cerrar la pinza.
 
 ### T3 — Intérprete de órdenes (ítem 1)
 ```bash
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_DE_TU_PC>:8000 -p timeout_laya_s:=2.0
 ```
-**Parámetro útil para demo:** `-p forzar_clasificador:=true` fuerza el uso exclusivo del clasificador
-local (evita que LAYA confunda colores, p. ej. "verde"→"rojo").
+**Qué hace:** expone `/interpretar_orden` y decide entre LAYA y el clasificador. **Parámetro útil para
+demo:** `-p forzar_clasificador:=true` fuerza el clasificador local (evita que LAYA confunda colores,
+p. ej. "verde"→"rojo").
 
 ### T4 — Enviar la frase (cliente de texto)
 ```bash
 ros2 run arm_broker cliente_texto
 ```
-Escribe, por ejemplo: `agarra el cubo rojo`. Puedes enviar varias seguidas.
+**Qué hace:** pide frases por teclado, llama `/interpretar_orden` y publica la decisión en
+`/orden_decidida`. Escribe, por ejemplo: `agarra el cubo rojo`. Puedes enviar varias seguidas.
 
 ### T5 — Percepción (ítem 2)
 
-**Recomendado (la percepción abre la cámara sola, sin depender de un driver):**
+**Recomendado** (la percepción abre la cámara sola, sin depender de un driver):
 ```bash
 ros2 run arm_broker percepcion_camara --ros-args \
   -p fuente:=local -p topico_salida:=/objeto_detectado -p confirmaciones:=5
 ```
+**Qué hace:** abre `/dev/videoX` con OpenCV, mide el color de cada estación y publica el mapa.
 Debe verse `📷 cámara local abierta en índice N`, luego `📷 primera imagen (cámara local) ...` y, al
 moverse el brazo a `POSE_BUSQUEDA`, `🎯 mapa ESTABLE: {...}`.
 
-**Si el driver de la cámara sí publica bien** (p. ej. `usb_cam`), se puede usar el tópico:
+**Si el driver de la cámara sí publica** (p. ej. `usb_cam`):
 ```bash
 ros2 run arm_broker percepcion_camara --ros-args \
   -p fuente:=driver -p topico_imagen:=/image_raw -p confirmaciones:=5
 ```
+**Qué hace:** en vez de abrir la cámara, se **suscribe** al tópico de imagen.
 
 **Modo mixto** (`fuente:=auto`, por defecto): suscribe el tópico y, si no llega ninguna imagen en
 `watchdog_s`, abre la cámara local y avisa. Útil cuando el driver arranca pero **no** abre la cámara.
@@ -212,7 +239,8 @@ ros2 run arm_broker orquestador --ros-args \
   -p gripper_habilitada:=true -p accion_pinza:=gripper_command \
   -p paso_orquestador_rad:=1.0 -p usar_camara:=true -p usar_estaciones:=true
 ```
-Debe verse `🔎 yendo a POSE_BUSQUEDA`, luego `📍 color <color> en estación N`, la secuencia
+**Qué hace:** consume la decisión y el mapa, y manda la secuencia de *goals* al broker intercalando la
+pinza. Debe verse `🔎 yendo a POSE_BUSQUEDA`, luego `📍 color <color> en estación N`, la secuencia
 (abrir → agarre → cerrar → búsqueda → reparto → destino → abrir → home) y una fila nueva en
 `intentos.csv`.
 
@@ -228,8 +256,9 @@ color de cada estación:
 python3 herramientas/calibrar_camara.py --mover-brazo --guardar foto_estaciones.jpg
 python3 herramientas/calibrar_camara.py --headless --mover-brazo   # sin pantalla (SSH/Jupyter)
 ```
-Revisa que cada cubo caiga **dentro de su cuadrante**. No hay anclas que copiar: los rectángulos son
-los cuadrantes de la imagen.
+**Qué hace:** coloca el brazo en `POSE_BUSQUEDA`, toma un frame y superpone las ROIs con el color
+detectado. Revisa que cada cubo caiga **dentro de su cuadrante**. No hay anclas que copiar: los
+rectángulos son los cuadrantes de la imagen.
 
 ---
 
@@ -255,9 +284,14 @@ los cuadrantes de la imagen.
 | `indice_camara` | `-1` | Cámara para `fuente=local`: `-1` = autodetecta 0..3; si no, el índice forzado. |
 | `ancho_camara` / `alto_camara` | `640` / `480` | Resolución que se pide a la cámara local. |
 | `area_min` | `300` | Píxeles mínimos del manchón de color para contarlo. |
-| `confirmaciones` | `5` | Fotogramas seguidos con el mismo mapa para marcarlo `estable`. |
+| `confirmaciones` | `5` | Fotogramas seguidos con la misma esquina para darla por confirmada. |
 | `watchdog_s` | `5.0` | Avisa si no llega imagen en este tiempo (y en `auto` dispara la cámara local). |
 | `log_estado_periodico_s` | `0.0` | `0` = apagado; `>0` = log cada N s. |
+
+> **Salida JSON de la percepción** (`/objeto_detectado`): `{color, presente, estable, cx, cy, t,
+> mapa_estaciones, por_slot, mapa_confirmado, detecciones}`. `mapa_estaciones` y `por_slot` son el
+> **mismo** mapa (compatibilidad con el orquestador de referencia); `mapa_confirmado` lleva **solo**
+> las esquinas con racha suficiente y es el que **prefiere** el orquestador.
 
 > **Por qué `fuente:=local`:** en el kit el driver puede arrancar pero **no abrir la cámara**, así que
 > nadie publica en `/image_raw`. `local` toma el dispositivo (`/dev/videoX`) con OpenCV y no depende
@@ -271,11 +305,13 @@ los cuadrantes de la imagen.
 | `paso_orquestador_rad` | `1.0` | Tamaño del trozo. Debe ser ≤ `paso_max_rad` del broker. |
 | `usar_camara` | `true` | Encender la percepción. `false` deja sin mapa → toda orden se rechaza. |
 | `usar_estaciones` | `true` | `true` = mapa `{estación → color}`; `false` = modo legado (pose única). |
-| `espera_deteccion_s` | `6.0` | Cuánto espera el mapa estable con el color pedido. |
-| `timeout_goal_s` | `60.0` | Cuánto espera a que el broker termine un goal. |
+| `espera_deteccion_s` | `6.0` | Cuánto espera la confirmación del color pedido. |
+| `timeout_goal_s` | `60.0` | Cuánto espera a que el broker termine un *goal*. |
 | `gripper_habilitada` | `true` | Encender el control de la pinza (`false` = no abre/cierra). |
 | `accion_pinza` | `gripper_command` | Acción de la pinza; la sirve el nodo `servidor_pinza` (respaldo directo por serie). |
 | `pinza_pos_abierta` / `pinza_pos_cerrada` | `100` / `15` | Posiciones de la pinza (escala del kit 0..100). |
+| `pinza_puerto` / `pinza_baudios` | `/dev/ttyUSB0` / `1000000` | Puerto serie y velocidad (respaldo por pymycobot). |
+| `pinza_velocidad` | `50` | Velocidad de la pinza. |
 | `topico_decision` | `orden_decidida` | Tópico de la decisión ya interpretada. |
 | `topico_deteccion` | `objeto_detectado` | Tópico del mapa de percepción. |
 | `archivo_rechazos` | `rechazos_orquestador.csv` | Rechazos antes de encolar. |
@@ -304,6 +340,8 @@ ros2 topic echo /arm/queue_state
 # Mapa de percepción en vivo
 ros2 topic echo /objeto_detectado
 ```
+**Qué hace:** el primero cuenta quién publica `/joint_states` (debe salir **exactamente 1**:
+`arm_broker`); los otros dos muestran en vivo la cola y el mapa de colores.
 
 | Archivo | Lo escribe | Contenido |
 |---|---|---|
@@ -329,22 +367,21 @@ ros2 topic echo /objeto_detectado
   posición SIEMPRE sale de la cámara, no hay respaldo de color fijo.
 
 ## 10. Problemas comunes
-- **Rechazo `paso`** → baja `paso_orquestador_rad` (≤ `paso_max_rad` del broker; el default 1.0 ya
-  es seguro).
+- **Rechazo `paso`** → baja `paso_orquestador_rad` (≤ `paso_max_rad` del broker; el default 1.0 ya es
+  seguro).
 - **`color_no_encontrado`** → comprueba con `calibrar_camara.py` que la cámara ve la mesa y que cada
-  cubo cae dentro de su cuadrante; verifica que el brazo esté en `POSE_BUSQUEDA`. La percepción
-  publica el mapa bajo **dos claves equivalentes** (`mapa_estaciones` y `por_slot`) y el orquestador
-  acepta **ambas**, para que no se rechace por desajuste de clave entre versiones. Además publica
+  cubo cae dentro de su cuadrante; verifica que el brazo esté en `POSE_BUSQUEDA`. La percepción publica
+  el mapa bajo **dos claves equivalentes** (`mapa_estaciones` y `por_slot`) y el orquestador acepta
+  **ambas**, para que no se rechace por desajuste de clave entre versiones. Además publica
   `mapa_confirmado` (solo las esquinas con racha suficiente); el orquestador prefiere esa clave, así
   que una esquina parpadeante ya no impide encontrar el color de otra.
-- **No llega imagen / el driver corre pero no abre la cámara** → usa `-p fuente:=local` (la
-  percepción abre el dispositivo `/dev/videoX` con OpenCV) o `-p fuente:=auto` para el respaldo
-  automático. Revisa `/dev/video*` y el `indice_camara`. Diagnóstico: `ros2 topic hz /image_raw`
-  (0 Hz = nadie publica).
-- **`gripper_command` no responde / la pinza no se mueve** → levanta el nodo `servidor_pinza` (T2b):
-  es quien sirve la acción. Si la acción existe pero la pinza no se mueve, el problema es el puerto
-  serie compartido: `fuser -v /dev/ttyUSB0` (¿lo tiene `sync_plan_nx`?) y `ls -l /dev/serial/by-id/`.
-  La pinza reintenta abrir el puerto en **modo compartido no exclusivo** (`exclusive=False`), y
+- **No llega imagen / el driver corre pero no abre la cámara** → usa `-p fuente:=local` (la percepción
+  abre el dispositivo `/dev/videoX` con OpenCV) o `-p fuente:=auto` para el respaldo automático. Revisa
+  `/dev/video*` y el `indice_camara`. Diagnóstico: `ros2 topic hz /image_raw` (0 Hz = nadie publica).
+- **`gripper_command` no responde / la pinza no se mueve** → levanta el nodo `servidor_pinza` (T2b): es
+  quien sirve la acción. Si la acción existe pero la pinza no se mueve, el problema es el puerto serie
+  compartido: `fuser -v /dev/ttyUSB0` (¿lo tiene `sync_plan_nx`?) y `ls -l /dev/serial/by-id/`. La
+  pinza reintenta abrir el puerto en **modo compartido no exclusivo** (`exclusive=False`), y
   `servidor_pinza` marca `reached_goal=False` en cualquier fallo (un fallo NO se reporta como éxito).
   Mientras se resuelve, `-p gripper_habilitada:=false`.
 - **No hay MoveIt2/URDF/ros2_control** → la "IK" son las poses precalculadas de `poses.py`.

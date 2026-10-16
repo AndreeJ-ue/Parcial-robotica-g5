@@ -1,7 +1,9 @@
-# DEMO — De la voz al brazo (cadena completa)
+# DEMO — De la voz al brazo (cadena completa, ítems 1 + 2 + 3)
 
-Ejecuta la cadena completa: una **orden hablada** (o un `.wav`) se transcribe, se interpreta y el
-**brazo se mueve** según la orden. Es la integración de los 3 ítems.
+Ejecuta la cadena completa: una **orden hablada** (o un `.wav`) se **transcribe** (ítem 3), se
+**interpreta** (ítem 1) y el **brazo se mueve** según la orden (ítem 2). Este documento es la guía de
+la **demo integrada**; el detalle de cada ítem está en `ITEM_1_INTERPRETE.md`, `ITEM_2_BRAZO.md` y
+`ITEM_3_TRANSCRIPCION.md`.
 
 ```
 audio (.wav)                 frase (texto)
@@ -36,10 +38,10 @@ transcriptor_voz ──texto──────────┤        ┌──�
 ```
 
 ## Qué corre en cada máquina
-- **PC Windows**: `laya-serve` (decisión tipada, no necesita internet).
+- **PC Windows**: `laya-serve` (decisión tipada; no necesita internet una vez cargado el modelo).
 - **Jetson (ROS 2)**: `broker`, `sync_plan_nx`, `servidor_pinza`, `interprete_ordenes`,
   `transcriptor_voz`, `percepcion_camara`, `orquestador`.
-- **Google AI Studio (internet)**: solo la transcripción de audio.
+- **Google AI Studio (internet)**: solo la transcripción de audio (ítem 3).
 
 ---
 
@@ -47,9 +49,10 @@ transcriptor_voz ──texto──────────┤        ┌──�
 
 ### Entorno (en CADA terminal de la Jetson)
 ```bash
-cd ~/rb2_ws
+git clone -b final https://github.com/AndreeJ-ue/Parcial-robotica-g5.git ~/anchy
+
+cd ~/anchy
 source /opt/ros/humble/setup.bash
-colcon build --packages-select arm_broker_interfaces arm_broker --symlink-install
 source install/setup.bash
 export ROS_DOMAIN_ID=47                     # el que asigne el docente
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
@@ -60,6 +63,17 @@ ros2 daemon stop; ros2 daemon start
 export GOOGLE_API_KEY="TU_CLAVE"
 # export LAYA_API_KEY="..."   # solo si pusiste clave en laya-serve
 ```
+**Qué hace:** carga ROS 2 + el paquete, fija dominio/middleware/descubrimiento, reinicia el daemon y
+deja las claves en el entorno (nunca en el código).
+
+### Compilar una vez (antes de la demo)
+```bash
+cd ~/anchy
+colcon build 
+source install/setup.bash
+```
+**Qué hace:** compila los dos paquetes del proyecto y recarga el entorno. `--symlink-install` enlaza
+los `.py`, así no hay que recompilar al editar Python.
 
 ### Paso 0 — PC Windows: levantar LAYA
 ```powershell
@@ -67,33 +81,43 @@ cd C:\laya ; .\.venv\Scripts\Activate.ps1
 $env:LAYA_HOST="0.0.0.0"; $env:LAYA_PORT="8000"; $env:LAYA_DEVICE="cuda"; $env:LAYA_PRELOAD="1"
 laya-serve
 ```
-Comprueba que la Jetson lo ve: `curl -s http://<IP_DE_TU_PC>:8000/health`.
+**Qué hace:** arranca LAYA en la PC escuchando en toda la LAN (`0.0.0.0`), para que la Jetson lo
+alcance. Comprueba que la Jetson lo ve: `curl -s http://<IP_DE_TU_PC>:8000/health`.
 
 ### T1 — Broker (la cola; único publicador de `/joint_states`)
 ```bash
-ros2 run arm_broker broker --ros-args -p politica:=prioridad -p tau_envejecimiento_s:=12.0 -p paso_max_rad:=2.0 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1 -p cola_max:=20 -p archivo_rechazos:=rechazos.csv
+ros2 run arm_broker broker --ros-args -p politica:=prioridad -p tau_envejecimiento_s:=12.0 -p paso_max_rad:=1.2 -p duracion_movimiento_s:=5.0 -p pasos_interpolacion:=1 -p cola_max:=20 -p archivo_rechazos:=rechazos.csv
 ```
-(Con `-p politica:=fifo` si prefieres FIFO.)
+**Qué hace:** levanta el servidor de `move_arm` con cola **priorizada** y envejecimiento. Usa
+`-p politica:=fifo` si prefieres orden de llegada. **Por qué `paso_max_rad:=1.2`:** es el valor por
+defecto y el orquestador trocea a 1.0 (≤ 1.2), así nunca hay rechazos por causa `paso`.
 
 ### T2 — Driver del kit
 ```bash
 ros2 run jetcobot_driver sync_plan_nx
 ```
+**Qué hace:** abre el puerto serie del brazo y traduce `/joint_states` (grados) a las órdenes físicas
+del brazo.
 
 ### T2b — Servidor de la pinza (acción `gripper_command`)
-El driver del kit NO expone la acción de la pinza, así que este nodo la levanta por pymycobot.
+El driver del kit **no** expone la acción de la pinza, así que este nodo la levanta por pymycobot:
 ```bash
 ros2 run arm_broker servidor_pinza --ros-args -p puerto:=/dev/ttyUSB0 -p velocidad:=50
 ```
-> **Ojo con el puerto serie**: `sync_plan_nx` y `servidor_pinza` comparten `/dev/ttyUSB0`. Antes de
-> la demo comprueba quién lo tiene (`fuser -v /dev/ttyUSB0`) y que la acción aparezca
-> (`ros2 action list -t | grep gripper_command`). Si no se puede compartir, corre el orquestador
-> con `-p gripper_habilitada:=false` para demostrar el resto de la cadena sin cerrar la pinza.
+**Qué hace:** sirve `control_msgs/GripperCommand` y mueve la pinza por serie (100 = abierta,
+15 = cerrada).
+> **Ojo con el puerto serie:** `sync_plan_nx` y `servidor_pinza` comparten `/dev/ttyUSB0`. Antes de la
+> demo comprueba quién lo tiene (`fuser -v /dev/ttyUSB0`) y que la acción aparezca
+> (`ros2 action list -t | grep gripper_command`). La pinza reintenta abrir en **modo compartido no
+> exclusivo**; si no se puede compartir, corre el orquestador con `-p gripper_habilitada:=false` para
+> demostrar el resto de la cadena sin cerrar la pinza.
 
 ### T3 — Intérprete de órdenes (ítem 1)
 ```bash
 ros2 run arm_broker interprete_ordenes --ros-args -p laya_url:=http://<IP_DE_TU_PC>:8000 -p timeout_laya_s:=2.0
 ```
+**Qué hace:** expone `/interpretar_orden`; decide con LAYA y, si vence el timeout, con el clasificador
+local (`degradada=True`).
 
 ### T4 — Transcriptor de voz (ítem 3): la LECTURA DEL AUDIO
 Es el nodo que lee el audio y lo convierte en la orden que mueve el brazo.
@@ -105,7 +129,8 @@ ros2 run arm_broker transcriptor_voz --ros-args \
   -p google_model:=gemini-2.5-flash \
   -p timeout_transcripcion_s:=5.0 -p n_ordenes:=1
 ```
-Cada audio nuevo:
+**Qué hace:** transcribe `orden_01.wav` con Google AI Studio, llama `/interpretar_orden` y publica la
+decisión en `/orden_decidida`. Cada audio nuevo:
 ```bash
 ros2 run arm_broker transcriptor_voz --ros-args -p ruta_audio:=orden_02.wav -p n_ordenes:=1
 ```
@@ -114,6 +139,7 @@ ros2 run arm_broker transcriptor_voz --ros-args -p ruta_audio:=orden_02.wav -p n
 ```bash
 ros2 run arm_broker transcriptor_voz --ros-args -p fuente:=teclado -p n_ordenes:=5
 ```
+**Qué hace:** si la nube falla (sin clave, sin internet, timeout), el nodo avisa y lee `input()`.
 
 > Para grabar los audios: `arecord -D plughw:1,0 -f S16_LE -r 16000 -c 1 -d 8 orden_01.wav`.
 
@@ -121,14 +147,16 @@ ros2 run arm_broker transcriptor_voz --ros-args -p fuente:=teclado -p n_ordenes:
 ```bash
 ros2 run arm_broker percepcion_camara --ros-args -p fuente:=local -p confirmaciones:=5
 ```
-Usa `-p fuente:=local` (la percepción abre la cámara con OpenCV) cuando el driver del kit no abre la
-cámara; `-p fuente:=driver` si un driver sí publica en `/image_raw`; `-p fuente:=auto` hace el
-respaldo automático.
+**Qué hace:** abre la cámara con OpenCV y publica el mapa `{estación → color}` en `/objeto_detectado`.
+Usa `-p fuente:=local` cuando el driver del kit no abre la cámara; `-p fuente:=driver` si un driver sí
+publica en `/image_raw`; `-p fuente:=auto` hace el respaldo automático.
 
 ### T6 — Orquestador (ítem 2): mueve el brazo
 ```bash
 ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion_pinza:=gripper_command -p paso_orquestador_rad:=1.0 -p usar_camara:=true -p usar_estaciones:=true
 ```
+**Qué hace:** consume `/orden_decidida` y el mapa, va a `POSE_BUSQUEDA`, resuelve la estación del color
+y manda la secuencia de *goals* al broker intercalando la pinza.
 
 ---
 
@@ -138,7 +166,8 @@ ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion
 2. **T4**: `🧭 [DECISIÓN] agarrar/<objeto>/<color> p=<prioridad> permitido=True · <ms>`.
 3. **T5**: `🎯 mapa ESTABLE: {1: ..., 2: ..., 3: ..., 4: ...}` cuando el brazo está en `POSE_BUSQUEDA`.
 4. **T6**: `🔎 yendo a POSE_BUSQUEDA` y `📍 color <color> en estación N`.
-5. **T6/T2**: secuencia `abrir pinza → agarre en la estación → cerrar pinza → POSE_BUSQUEDA → reparto → zona del color → abrir → HOME`.
+5. **T6/T2**: secuencia `abrir pinza → agarre en la estación → cerrar pinza → POSE_BUSQUEDA → reparto →
+   zona del color → abrir → HOME`.
 6. **T1**: la cola atiende los pedidos (con prioridad se reordenan; con FIFO, en orden de llegada).
 
 Cuando la orden **no** se ejecuta, se registra el rechazo:
@@ -150,9 +179,13 @@ Cuando la orden **no** se ejecuta, se registra el rechazo:
 ```bash
 python3 analisis/verificar_publicadores.py     # debe salir 1 publicador: arm_broker
 ros2 topic echo /arm/queue_state               # cola en vivo
+ros2 topic echo /objeto_detectado              # mapa de percepción en vivo
 ```
+**Qué hace:** confirma que hay **un solo** publicador de `/joint_states` (`arm_broker`) y muestra en
+vivo la cola y el mapa.
+
 Salidas: `transcripciones.csv` (T4), `intentos.csv` / `rechazos_orquestador.csv` /
-`tiempos_acciones.csv` (T5), `rechazos.csv` (T1).
+`tiempos_acciones.csv` (T6), `rechazos.csv` (T1).
 
 > Regla dura: **solo el broker publica `/joint_states`**. El transcriptor y el orquestador nunca
-> publican ese tópico; solo leen `joint_states` y envían goals `move_arm`.
+> publican ese tópico; solo leen `/joint_states` y envían *goals* `move_arm`.
