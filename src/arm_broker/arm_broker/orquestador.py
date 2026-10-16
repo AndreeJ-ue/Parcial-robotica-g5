@@ -1,21 +1,35 @@
-""" Orquestador COMPLETO del Ítem 2: decisión → cámara → poses → cola del broker → pinza """
+""" Orquestador de la cadena de agarre autónomo — Ítem 2 (Pregunta 2) """
 
-""" Reemplaza al orquestador mínimo. Toma la decisión tipada del Ítem 1/3 (/orden_decidida),
-rechaza ANTES de encolar lo que no corresponde, localiza el color con la cámara, elige la pose
-de agarre y la zona de depósito (poses.py), y manda goals move_arm al broker troceados por paso
-articular (para que no los rechace con causa 'paso'), intercalando los comandos de pinza.
+""" Puente entre la decisión tipada (Ítem 1/3) y el broker del RB-2, con la regla de oro: SOLO
+el worker del broker publica comandos al brazo. Este nodo no publica /joint_states: solo escucha
+la decisión, espera la confirmación de la cámara, elige la pose de la ESTACIÓN donde se vio el
+color (4 estaciones — ver estaciones.py), y manda la secuencia de goals a la acción move_arm (con
+la prioridad del modelo) intercalando los comandos de pinza.
 
-Regla dura: el orquestador NUNCA publica /joint_states (solo el broker). Aquí se SUSCRIBE a
-/joint_states (lectura) para conocer la pose actual y medir el error de FK, pero jamás publica.
+El tapete tiene CUATRO estaciones y un cubo por color en cualquier estación. La cámara publica el
+mapa {estación → color} y aquí se resuelve la estación del color pedido; si el color no está en
+ninguna, se rechaza con causa 'color_no_encontrado'.
 
-Los goals van en RADIANES (contrato de MoveArm.action); las poses de la mesa están en GRADOS y
-se convierten con poses.a_radianes(). El broker es quien vuelve a GRADOS al publicar para el
-driver. La prioridad del goal sale del modelo (prioridad × escala_prioridad), nunca escrita a
-mano. """
+Hay exactamente 3 acciones (ver tabla). 'mover' es la única con una decisión real: si el brazo YA
+tiene un cubo en mano (self.cargando, de una 'agarrar' anterior) no repite el agarre, solo
+completa el transporte; si no tiene nada, hace el pick-and-place completo.
+
+Acción  | ¿color? | Secuencia
+agarrar | sí      | busqueda → cámara resuelve estación → abrir→AGARRE[est]→cerrar → busqueda
+soltar  | no      | abre la pinza donde esté, sin mover el brazo
+mover   | sí      | si self.cargando: reparto→destino[color]→abrir→home (NO vuelve a agarrar)
+        |         | si no: busqueda → estación → agarre completo → transporte → home
+detener | no      | limpia la cola de pendientes y vuelve a home
+
+Unidades: los goals van en RADIANES (contrato de MoveArm.action); las poses de la mesa están en
+GRADOS y se convierten con poses.a_radianes(). El broker publica /joint_states en GRADOS (contrato
+con el driver del kit), así que aquí se vuelve a RADIANES al LEER para medir el error de FK. """
 
 import csv
 import json
+import math
 import os
+import queue
 import threading
 import time
 
@@ -30,9 +44,8 @@ from std_msgs.msg import String
 
 from arm_broker_interfaces.action import MoveArm
 
-from arm_broker import intentos, poses
+from arm_broker import intentos, poses, estaciones
 from arm_broker.gripper import Pinza
-from arm_broker.percepcion_camara import PercepcionCamara
 
 
 class NodoOrquestador(Node):
@@ -40,128 +53,90 @@ class NodoOrquestador(Node):
     def __init__(self):
         super().__init__('orquestador')
 
-        # Parámetros de ROS 2
         self.declare_parameter('client_id', 'orquestador')
-        self.declare_parameter('cliente', 'voz')
-        self.declare_parameter('escala_prioridad', 85)
-        self.declare_parameter('topico_decision', 'orden_decidida')
-        self.declare_parameter('acciones_aceptadas', ['agarrar'])
-        self.declare_parameter('paso_orquestador_rad', 1.5)
-        self.declare_parameter('timeout_goal_s', 120.0)
-
+        self.declare_parameter('escala_prioridad', 85)      # priority = prioridad * 85 (0..3 → 0..255)
+        self.declare_parameter('paso_orquestador_rad', 1.0)  # <= paso_max_rad del broker (1.2)
         self.declare_parameter('usar_camara', True)
-        self.declare_parameter('usar_pose_busqueda', True)
-        self.declare_parameter('pose_busqueda', list(poses.POSE_BUSQUEDA))
-        self.declare_parameter('espera_busqueda_s', 1.0)
-        self.declare_parameter('anclas_camara', [
-            'pos1=537,385', 'pos2=114,380', 'pos3=520,87', 'pos4=122,90',
-        ])
-        self.declare_parameter('radio_ancla_px', 70.0)
-        self.declare_parameter('frames_estabilidad', 8)
-        self.declare_parameter('timeout_color_s', 8.0)
-        self.declare_parameter('indice_camara', -1)
+        self.declare_parameter('usar_estaciones', True)      # True = mapa {estación: color}; False = pose única
+        self.declare_parameter('espera_deteccion_s', 6.0)
+        self.declare_parameter('timeout_goal_s', 60.0)
 
         self.declare_parameter('gripper_habilitada', True)
         self.declare_parameter('accion_pinza', 'gripper_command')
         self.declare_parameter('pinza_pos_abierta', float(poses.GRIPPER_ABIERTO))
         self.declare_parameter('pinza_pos_cerrada', float(poses.GRIPPER_CERRADO))
+        self.declare_parameter('pinza_esfuerzo', 10.0)
         self.declare_parameter('pinza_puerto', '/dev/ttyUSB0')
         self.declare_parameter('pinza_baudios', 1000000)
         self.declare_parameter('pinza_velocidad', poses.GRIPPER_SPEED)
 
+        self.declare_parameter('topico_decision', 'orden_decidida')
+        self.declare_parameter('topico_deteccion', 'objeto_detectado')
         self.declare_parameter('archivo_rechazos', 'rechazos_orquestador.csv')
         self.declare_parameter('archivo_intentos', 'intentos.csv')
         self.declare_parameter('archivo_tiempos', 'tiempos_acciones.csv')
 
         self.identificador = str(self.get_parameter('client_id').value)
-        self.cliente = str(self.get_parameter('cliente').value)
         self.escala = int(self.get_parameter('escala_prioridad').value)
-        self.acciones_aceptadas = [str(a).lower()
-                                   for a in self.get_parameter('acciones_aceptadas').value]
         self.paso = float(self.get_parameter('paso_orquestador_rad').value)
+        self.usar_camara = bool(self.get_parameter('usar_camara').value)
+        self.usar_estaciones = bool(self.get_parameter('usar_estaciones').value)
+        self.espera_deteccion = float(self.get_parameter('espera_deteccion_s').value)
         self.timeout_goal = float(self.get_parameter('timeout_goal_s').value)
         self.ruta_rechazos = str(self.get_parameter('archivo_rechazos').value)
         self.ruta_tiempos = str(self.get_parameter('archivo_tiempos').value)
-        self.timeout_color = float(self.get_parameter('timeout_color_s').value)
 
-        self.usar_pose_busqueda = bool(self.get_parameter('usar_pose_busqueda').value)
-        self.pose_busqueda = [float(v) for v in self.get_parameter('pose_busqueda').value]
-        self.espera_busqueda = float(self.get_parameter('espera_busqueda_s').value)
-
-        # Estado compartido
-        self.lock = threading.Lock()
-        self.lock_joint = threading.Lock()
-        self.cola = []
-        self.evento = threading.Event()
-        self._parar = threading.Event()
-        self.q_actual_deg = None
-        self.n_intentos = 0
-
-        self._preparar_rechazos()
+        self._preparar_csv()
         self.registro_intentos = intentos.RegistroIntentos(
             str(self.get_parameter('archivo_intentos').value))
 
-        # Cámara (obligatoria para ubicar): sin cámara no hay respaldo, se rechaza la orden
-        self.camara = None
-        if bool(self.get_parameter('usar_camara').value):
-            self.camara = PercepcionCamara(
-                anclas=self._leer_anclas(self.get_parameter('anclas_camara').value),
-                radio_ancla=float(self.get_parameter('radio_ancla_px').value),
-                indice_camara=(None if int(self.get_parameter('indice_camara').value) < 0
-                               else int(self.get_parameter('indice_camara').value)),
-                frames_estabilidad=int(self.get_parameter('frames_estabilidad').value))
-            self.camara.iniciar()
-
-        # Pinza (vía primaria: acción gripper_command; respaldo: pymycobot)
+        # sin_camara no hay respaldo: si el mapa no aparece, la orden se rechaza
         self.pinza = Pinza(
             self,
             habilitada=bool(self.get_parameter('gripper_habilitada').value),
             accion=str(self.get_parameter('accion_pinza').value),
             pos_abierta=float(self.get_parameter('pinza_pos_abierta').value),
             pos_cerrada=float(self.get_parameter('pinza_pos_cerrada').value),
+            esfuerzo=float(self.get_parameter('pinza_esfuerzo').value),
             puerto=str(self.get_parameter('pinza_puerto').value),
             baudios=int(self.get_parameter('pinza_baudios').value),
             velocidad=int(self.get_parameter('pinza_velocidad').value))
 
-        # ROS: cliente de la acción, suscripción a la decisión y a la pose actual (solo lectura)
         grupo = ReentrantCallbackGroup()
         self.accion = ActionClient(self, MoveArm, 'move_arm', callback_group=grupo)
-        self.suscripcion = self.create_subscription(
-            String, str(self.get_parameter('topico_decision').value),
-            self._al_recibir, 10, callback_group=grupo)
-        self.suscripcion_joint = self.create_subscription(
-            JointState, '/joint_states', self._al_joint_state, 10, callback_group=grupo)
+        self.create_subscription(String, str(self.get_parameter('topico_decision').value),
+                                 self._al_recibir, 10, callback_group=grupo)
+        self.create_subscription(String, str(self.get_parameter('topico_deteccion').value),
+                                 self._al_deteccion, 10, callback_group=grupo)
+        # SOLO LECTURA: captura la pose alcanzada para el error de FK (nunca publica)
+        self.create_subscription(JointState, '/joint_states', self._al_joint, 10,
+                                 callback_group=grupo)
+
+        self.lock = threading.Lock()
+        self.lock_joint = threading.Lock()
+        self.q_actual = [0.0] * 6
+        self.deteccion = None
+        self.cola = queue.Queue()
+        self.evento = threading.Event()
+        self._parar = threading.Event()
+        self.n_intentos = 0
+        self.cargando = False
 
         self.hilo = threading.Thread(target=self._worker, daemon=True)
         self.hilo.start()
 
         self.get_logger().info('=' * 60)
         self.get_logger().info('  ORQUESTADOR ÍTEM 2 LISTO')
-        self.get_logger().info(f'  pasos cubo   : {sorted(poses.POSICIONES_CUBO)}')
+        self.get_logger().info(f'  estaciones   : {sorted(estaciones.ESTACIONES)}')
         self.get_logger().info(f'  destinos     : {sorted(poses.DESTINOS)}')
         self.get_logger().info(f'  troceo       : paso <= {self.paso:.2f} rad')
+        self.get_logger().info(f'  usar_camara  : {self.usar_camara} · estaciones: {self.usar_estaciones}')
         self.get_logger().info(f'  pinza        : {self.pinza.via or "por descubrir"}')
         self.get_logger().info('  /joint_states: solo LECTURA (nunca publica)')
         self.get_logger().info('=' * 60)
 
-    # 1. Utilidades de parámetros
-    @staticmethod
-    def _leer_anclas(lista):
-        anclas = {}
-        for item in lista:
-            if '=' not in item:
-                continue
-            nombre, valores = item.split('=', 1)
-            partes = valores.split(',')
-            if len(partes) != 2:
-                continue
-            try:
-                anclas[nombre.strip().lower()] = (float(partes[0]), float(partes[1]))
-            except ValueError:
-                continue
-        return anclas
-
-    def _preparar_rechazos(self):
+    # 1. CSVs y utilidades
+    def _preparar_csv(self):
         if not os.path.exists(self.ruta_rechazos):
             with open(self.ruta_rechazos, 'w', newline='', encoding='utf-8') as f:
                 csv.writer(f).writerow([
@@ -171,10 +146,48 @@ class NodoOrquestador(Node):
             with open(self.ruta_tiempos, 'w', newline='', encoding='utf-8') as f:
                 csv.writer(f).writerow([
                     't_unix', 'frase', 'intento', 'meta', 'prioridad',
-                    't_envio', 't_fin', 'wait_time_s', 'exec_time_s', 'exito',
+                    'wait_time_s', 'exec_time_s', 'exito',
                 ])
 
-    # 2. Rechazo antes de encolar
+    @staticmethod
+    def _esperar(futuro, timeout):
+        evento = threading.Event()
+        futuro.add_done_callback(lambda _: evento.set())
+        if not evento.wait(timeout):
+            return None
+        return futuro.result()
+
+    # 2. Callbacks de suscripción
+    def _al_joint(self, msg):
+        with self.lock_joint:
+            if len(msg.position) >= 6:
+                # /joint_states llega en GRADOS (contrato con el driver); internamente radianes.
+                self.q_actual = [math.radians(float(v)) for v in msg.position[:6]]
+
+    def _al_deteccion(self, msg):
+        try:
+            datos = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        with self.lock:
+            self.deteccion = datos
+
+    def _al_recibir(self, msg):
+        try:
+            decision = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().error(f'decisión inválida (no es JSON): {msg.data!r}')
+            return
+        if not decision.get('permitido', False):
+            self._rechazar(decision, 'no_permitida',
+                           decision.get('motivo') or 'el modelo marcó permitido=False')
+            return
+        with self.lock:
+            self.cola.put(decision)
+        self.evento.set()
+        self.get_logger().info(
+            f'📥 ENCOLADA ({self.cola.qsize()} en espera): "{decision.get("frase", "")}"')
+
     def _rechazar(self, decision, causa, motivo):
         with open(self.ruta_rechazos, 'a', newline='', encoding='utf-8') as f:
             csv.writer(f).writerow([
@@ -182,247 +195,271 @@ class NodoOrquestador(Node):
                 int(decision.get('prioridad', 0)), causa, motivo, decision.get('frase', ''),
             ])
         self.get_logger().warn(
-            f'⛔ RECHAZADA ANTES DE ENCOLAR ({causa}): '
-            f'"{decision.get("frase", "")}" — {motivo}')
+            f'⛔ RECHAZADA ({causa}): "{decision.get("frase", "")}" — {motivo}')
 
-    # 3. Pose actual (solo lectura de /joint_states; el broker la publica en GRADOS)
-    def _al_joint_state(self, msg):
+    # 3. Worker: una orden completa a la vez
+    def _worker(self):
+        while not self._parar.is_set():
+            try:
+                decision = self.cola.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                self._atender(decision)
+            except Exception as e:
+                self.get_logger().error(f'error atendiendo la orden: {e!r}')
+
+    # 4. Espera de la confirmación visual del color / de la estación
+    def _snapshot_deteccion(self):
+        with self.lock:
+            return dict(self.deteccion) if self.deteccion else None
+
+    def _mapa_estaciones(self):
+        """Devuelve {estación:int → color:str} de la última detección, o {} si no hay nada."""
+        det = self._snapshot_deteccion()
+        if not det:
+            return {}
+        bruto = det.get('mapa_estaciones') or {}
+        mapa = {}
+        for e, c in bruto.items():
+            try:
+                mapa[int(e)] = c
+            except (TypeError, ValueError):
+                continue
+        return mapa
+
+    def _esperar_estacion(self, color):
+        """Espera a que el MAPA estable {estación → color} contenga `color` y devuelve la
+        estación (1..4). None si en espera_deteccion_s no apareció en ninguna estación."""
+        limite = time.time() + self.espera_deteccion
+        while time.time() < limite and rclpy.ok():
+            det = self._snapshot_deteccion()
+            if det and det.get('estable'):
+                for e, c in (det.get('mapa_estaciones') or {}).items():
+                    if c == color:
+                        try:
+                            return int(e)
+                        except (TypeError, ValueError):
+                            continue
+            time.sleep(0.05)
+        return None
+
+    def _esperar_color(self, color):
+        """Modo legacy: espera una detección ESTABLE del color (sin importar estación)."""
+        limite = time.time() + self.espera_deteccion
+        while time.time() < limite and rclpy.ok():
+            det = self._snapshot_deteccion()
+            if (det and det.get('presente') and det.get('color') == color
+                    and det.get('estable')):
+                return det
+            time.sleep(0.05)
+        return None
+
+    # 5. Envío de un movimiento al broker (una meta, ya troceada por poses.trozar)
+    def _enviar_goal(self, q_rad, prioridad):
+        if not self.accion.wait_for_server(timeout_sec=10.0):
+            return False, 'el broker no aparece (¿está corriendo arm_broker?)', 0.0, 0.0
+        goal = MoveArm.Goal()
+        goal.joint_positions = [float(v) for v in q_rad]
+        goal.client_id = self.identificador
+        goal.priority = int(prioridad)
+        envio = self._esperar(self.accion.send_goal_async(goal), 10.0)
+        if envio is None:
+            return False, 'timeout enviando el goal', 0.0, 0.0
+        handle = envio
+        if handle is None or not handle.accepted:
+            return False, 'el broker RECHAZÓ el goal (ver rechazos.csv del broker)', 0.0, 0.0
+        resultado = self._esperar(handle.get_result_async(), self.timeout_goal)
+        if resultado is None:
+            return False, 'el broker no devolvió resultado', 0.0, 0.0
+        r = resultado.result
+        return bool(r.success), r.message, float(r.wait_time_s), float(r.exec_time_s)
+
+    def _mover_a(self, grados, prioridad, decision=None, intento=None):
+        """Mueve hacia la pose destino (grados), troceando en metas que respeten self.paso.
+        Devuelve True si TODAS las metas se alcanzaron."""
+        destino = poses.a_radianes(grados)
         with self.lock_joint:
-            self.q_actual_deg = [float(v) for v in msg.position]
+            origen = list(self.q_actual)
+        for indice, meta in enumerate(poses.trozar(origen, destino, self.paso), start=1):
+            t_envio = time.time()
+            exito, motivo, wait_s, exec_s = self._enviar_goal(meta, prioridad)
+            if decision is not None:
+                self._anotar_tiempo(decision, intento, indice, prioridad,
+                                    t_envio, wait_s, exec_s, exito)
+            self.get_logger().info(
+                f'   ➡️  meta {indice} p{int(prioridad)} {[round(v, 2) for v in meta]} rad',
+                throttle_duration_sec=0.2)
+            if not exito:
+                self.get_logger().warn(f'   meta {indice} falló: {motivo}')
+                return False
+            with self.lock_joint:
+                origen = list(self.q_actual)
+        return True
 
-    def _q_actual_grados(self):
-        with self.lock_joint:
-            q = None if self.q_actual_deg is None else list(self.q_actual_deg)
-        return q if q is not None else [0.0] * 6
-
-    # 4. Recepción de la decisión
-    def _al_recibir(self, msg):
-        try:
-            decision = json.loads(msg.data)
-        except json.JSONDecodeError:
-            self.get_logger().error(f'decisión inválida (no es JSON): {msg.data!r}')
-            return
+    # 6. Atención de una decisión válida (despacho por acción)
+    def _atender(self, decision):
+        frase = decision.get('frase', '')
+        accion = str(decision.get('accion') or 'desconocido').lower()
+        objeto = decision.get('objeto', 'desconocido')
+        color = str(decision.get('color') or 'ninguno').lower()
+        motivo = decision.get('motivo', '')
 
         if not decision.get('permitido', False):
-            self._rechazar(decision, 'no_permitida',
-                           decision.get('motivo') or 'el modelo marcó permitido=False')
+            self._rechazar(decision, 'no_permitida', motivo or 'el modelo marcó permitido=False')
             return
 
-        objeto = str(decision.get('objeto', 'desconocido')).lower()
-        color = str(decision.get('color', 'ninguno')).lower()
-        accion = str(decision.get('accion', 'desconocido')).lower()
+        if accion == 'detener':
+            self._detener()
+            return
 
-        if objeto in ('desconocido', '') or color in ('ninguno', ''):
+        tiene_color = color not in ('', 'ninguno')
+        if accion not in ('agarrar', 'soltar', 'mover'):
+            self._rechazar(decision, 'accion_desconocida',
+                           f'la acción {accion!r} no se reconoce; no hay nada que ejecutar')
+            return
+        if accion != 'soltar' and (objeto == 'desconocido' or not tiene_color):
             self._rechazar(decision, 'objeto_desconocido',
                            'objeto o color no reconocidos; no hay pose de agarre')
             return
-        if accion not in self.acciones_aceptadas:
-            self._rechazar(decision, 'accion_no_soportada',
-                           f"la acción '{accion}' no es de agarre")
-            return
-        if color not in poses.DESTINOS:
+        if accion != 'soltar' and poses.pose_destino(color) is None:
             self._rechazar(decision, 'color_sin_destino',
                            f'no hay zona de depósito definida para {color}')
             return
 
         prioridad = max(0, min(255, int(decision.get('prioridad', 0)) * self.escala))
-        item = dict(decision)
-        item['_priority'] = prioridad
 
-        with self.lock:
-            self.cola.append(item)
-            self.cola.sort(key=lambda d: -d['_priority'])
-        self.evento.set()
-        self.get_logger().info(
-            f'📥 ENCOLADA p{prioridad} ({len(self.cola)} en espera): '
-            f'"{decision.get("frase", "")}"')
-
-    # 5. Worker: una secuencia de agarre a la vez
-    def _worker(self):
-        while not self._parar.is_set():
-            with self.lock:
-                item = self.cola.pop(0) if self.cola else None
-            if item is None:
-                self.evento.wait(0.2)
-                self.evento.clear()
-                continue
-            self.get_logger().info(
-                f'▶️  DESENCOLADA p{item["_priority"]}: "{item.get("frase", "")}"')
-            try:
-                self._procesar(item)
-            except Exception as e:
-                self.get_logger().error(f'error procesando la orden: {e!r}')
-
-    # 6. Pose de búsqueda: coloca la cámara (montada en el brazo) frente a la mesa.
-    # Devuelve True si el brazo quedó EN la pose de búsqueda (o si no hacía falta moverse),
-    # y False si no se pudo alcanzar: en ese caso NO se debe escanear desde otra pose.
-    def _ir_a_busqueda(self, prioridad):
-        if not self.usar_pose_busqueda:
-            return True
-        if self.camara is None or not self.camara.disponible:
-            return True
-        origen_rad = poses.a_radianes(self._q_actual_grados())
-        metas = poses.trozar(origen_rad, poses.a_radianes(self.pose_busqueda), self.paso)
-        self.get_logger().info('🔎 POSE_BUSQUEDA: colocando la cámara frente a la mesa')
-        for q_rad in metas:
-            exito, motivo, _, _ = self._enviar_goal(q_rad, prioridad)
-            if not exito:
-                self.get_logger().warn(f'no se alcanzó POSE_BUSQUEDA: {motivo}')
-                return False
-        if self.espera_busqueda > 0.0:
-            time.sleep(self.espera_busqueda)
-        return True
-
-    # 6b. Ubicación del color con cámara (SIN respaldo: la posición siempre sale de la cámara)
-    def _ubicar(self, color):
-        if self.camara is None or not self.camara.disponible:
-            self.get_logger().warn('sin cámara disponible: no hay respaldo, se rechaza la orden')
-            return None
-        posicion = self.camara.esperar_color(color, self.timeout_color)
-        if posicion is None:
-            self.get_logger().warn(
-                f'la cámara no vio un cubo {color} estable; sin respaldo, se rechaza la orden')
-        return posicion
-
-    # 7. Secuencia completa de un pedido
-    def _procesar(self, decision):
-        color = str(decision.get('color', '')).lower()
-        objeto = str(decision.get('objeto', '')).lower()
-        frase = decision.get('frase', '')
-        prioridad = decision['_priority']
-
-        if not self._ir_a_busqueda(prioridad):
-            self._rechazar(decision, 'no_busqueda',
-                           'no se pudo colocar el brazo en POSE_BUSQUEDA para escanear')
+        if accion == 'soltar':
+            self.n_intentos += 1
+            intento = self.n_intentos
+            self.get_logger().info(f'▶️  intento {intento}: "{frase}" accion=soltar')
+            self._ejecutar_accion(decision, intento, poses.secuencia_soltar(), prioridad,
+                                  medir_agarre=False, cargando=False,
+                                  zona='soltar')
             return
 
-        posicion = self._ubicar(color)
-        if posicion is None:
-            self._rechazar(decision, 'no_detectado',
-                           f'no se encontró el cubo {color} sobre la mesa')
-            return
+        continuar_cargado = (accion == 'mover' and self.cargando)
 
-        meta_cubo = poses.pose_cubo(posicion)
-        meta_destino = poses.pose_destino(color)
-        if meta_cubo is None or meta_destino is None:
-            self._rechazar(decision, 'sin_pose', f'sin pose para {color} en {posicion}')
-            return
+        estacion = None
+        if not continuar_cargado:
+            # 'agarrar' y 'mover' desde cero van a POSE_BUSQUEDA y esperan que la cámara
+            # confirme el color ANTES de moverse más.
+            self.get_logger().info('🔎 yendo a POSE_BUSQUEDA (espacio de detección)')
+            if self.usar_camara and not self._mover_a(poses.POSE_BUSQUEDA, prioridad,
+                                                      decision, self.n_intentos + 1):
+                self._rechazar(decision, 'fallo_movimiento',
+                               'no se pudo llegar a POSE_BUSQUEDA (revisa rechazos.csv del '
+                               'broker y que arm_broker esté corriendo)')
+                return
+            if self.usar_camara and self.usar_estaciones:
+                estacion = self._esperar_estacion(color)
+                if estacion is None:
+                    self._rechazar(decision, 'color_no_encontrado',
+                                   f'la cámara no vio el color {color} en ninguna estación '
+                                   f'(mapa={self._mapa_estaciones()})')
+                    return
+                self.get_logger().info(f'📍 color {color} en estación {estacion} '
+                                       f'(mapa={self._mapa_estaciones()})')
+            elif self.usar_camara:
+                if self._esperar_color(color) is None:
+                    self._rechazar(decision, 'sin_deteccion',
+                                   f'la cámara no confirmó un objeto {color} estable sobre la mesa')
+                    return
 
         self.n_intentos += 1
         intento = self.n_intentos
         self.get_logger().info(
-            f'🤖 Intento {intento}: {color} en {posicion} → zona {color}')
+            f'▶️  intento {intento}: "{frase}" accion={accion} ({objeto}/{color}) '
+            f'priority={prioridad} cargando={self.cargando} estacion={estacion}')
 
-        exito, motivo, q_alcanzada_rad = self._secuencia(
-            decision, intento, meta_cubo, meta_destino, prioridad)
+        zona = f'est{estacion}_{color}' if estacion else f'zona_{color}'
+        if accion == 'agarrar':
+            self._ejecutar_accion(decision, intento, poses.secuencia_agarrar(estacion), prioridad,
+                                  medir_agarre=True, cargando=True,
+                                  agarre_grados=poses.agarre(estacion), zona=zona)
+        elif continuar_cargado:
+            self._ejecutar_accion(decision, intento, poses.secuencia_transportar(color), prioridad,
+                                  medir_agarre=False, cargando=False,
+                                  zona=f'transporte_{color}')
+        else:
+            self._ejecutar_accion(decision, intento,
+                                  poses.secuencia_completa(color, estacion), prioridad,
+                                  medir_agarre=True, cargando=False,
+                                  agarre_grados=poses.agarre(estacion), zona=zona)
 
-        self.registro_intentos.registrar(
-            intento, frase, objeto, color, posicion, color, exito,
-            poses.a_radianes(meta_destino), q_alcanzada_rad, motivo)
-        self.get_logger().info(
-            f'🏁 Intento {intento}: exito={exito} ({motivo or "ok"})')
+    # 7. Ejecución de un plan
+    def _ejecutar_accion(self, decision, intento, pasos, prioridad, medir_agarre, cargando,
+                         agarre_grados=None, zona=None):
+        """Ejecuta los pasos del plan, registra el intento y actualiza el estado de carga.
 
-    def _secuencia(self, decision, intento, meta_cubo, meta_destino, prioridad):
-        abierta = self.pinza.abrir()
-        if not abierta:
-            self.get_logger().warn('la pinza no abrió; continúo el movimiento')
+        agarre_grados: pose de agarre realmente pedida (la de la estación); si es None se mide
+        contra POSE_RECOGIDA (respaldo). zona: etiqueta para intentos.csv (p.ej. est3_verde)."""
+        q_agarre_pedida = poses.a_radianes(agarre_grados or poses.POSE_RECOGIDA)
+        q_agarre_alcanzada = list(q_agarre_pedida)
+        exito = True
 
-        if not self._mover_hacia(decision, intento, meta_cubo, prioridad):
-            self._volver_a_casa(decision, intento, prioridad)
-            return False, 'no se alcanzó la posición de agarre', None
-
-        if not self.pinza.cerrar():
-            self.get_logger().warn('la pinza no cerró; el cubo podría caerse')
-
-        # Levantar el cubo a POSE_BUSQUEDA antes de trasladarlo (evita chocar otros cubos)
-        if self.usar_pose_busqueda:
-            self.get_logger().info('⬆️  Levantando a POSE_BUSQUEDA antes de trasladar')
-            if not self._mover_hacia(decision, intento, self.pose_busqueda, prioridad):
-                self._volver_a_casa(decision, intento, prioridad)
-                return False, 'no se pudo levantar el cubo a POSE_BUSQUEDA', None
-
-        if not self._mover_hacia(decision, intento, meta_destino, prioridad):
-            self._volver_a_casa(decision, intento, prioridad)
-            return False, 'no se alcanzó la zona de depósito', None
-
-        q_alcanzada_rad = poses.a_radianes(self._q_actual_grados())
-        self.pinza.abrir()
-        self._volver_a_casa(decision, intento, prioridad)
-        return True, '', q_alcanzada_rad
-
-    def _volver_a_casa(self, decision, intento, prioridad):
-        if not self._mover_hacia(decision, intento, poses.POSE_HOME, prioridad, silencioso=True):
-            self.get_logger().warn('no se pudo volver a POSE_HOME')
-
-    # 8. Movimiento troceado
-    def _mover_hacia(self, decision, intento, meta_grados, prioridad, silencioso=False):
-        origen_rad = poses.a_radianes(self._q_actual_grados())
-        metas = poses.trozar(origen_rad, poses.a_radianes(meta_grados), self.paso)
-
-        for indice, q_rad in enumerate(metas, start=1):
-            t_envio = time.time()
-            exito, motivo, wait_s, exec_s = self._enviar_goal(q_rad, prioridad)
-            self._anotar_tiempo(decision, intento, indice, prioridad,
-                                t_envio, time.time(), wait_s, exec_s, exito)
-            if not exito:
-                if not silencioso:
+        for paso in pasos:
+            if paso[0] == 'gripper':
+                if self.pinza.habilitada:
+                    ok = self.pinza.abrir() if paso[1] == 'abrir' else self.pinza.cerrar()
+                else:
                     self.get_logger().warn(
-                        f'meta {indice}/{len(metas)} falló: {motivo}')
-                return False
-        return True
+                        f'🖐  pinza SIMULADA ({paso[1]}): gripper_habilitada=false',
+                        throttle_duration_sec=2.0)
+                    ok = True
+            else:
+                ok = self._mover_a(paso[2], prioridad, decision, intento)
+                if paso[1] == 'agarre':
+                    with self.lock_joint:
+                        q_agarre_alcanzada = list(self.q_actual)
+            if not ok:
+                exito = False
+                break
 
-    # 9. Envío de un goal al broker
-    def _enviar_goal(self, q_rad, prioridad):
-        if not self.accion.wait_for_server(timeout_sec=10.0):
-            return False, 'el broker no aparece (¿está corriendo arm_broker?)', 0.0, 0.0
+        # Si falló a mitad, intentar volver a home en el mejor esfuerzo (evita dejar el brazo
+        # colgando sobre la mesa).
+        if not exito and not self._parar.is_set():
+            self._mover_a(poses.POSE_HOME, prioridad)
 
-        goal = MoveArm.Goal()
-        goal.joint_positions = [float(v) for v in q_rad]
-        goal.client_id = self.identificador
-        goal.priority = int(prioridad)
+        # Bug corregido respecto al diseño de referencia: 'cargando' solo queda True si el
+        # agarre terminó bien; un agarre fallido NO debe dejar el estado como si hubiera cubo.
+        self.cargando = bool(cargando and exito)
 
+        frase = decision.get('frase', '')
+        objeto = decision.get('objeto', 'desconocido')
+        color = str(decision.get('color') or 'ninguno').lower()
+        motivo = 'ok' if exito else 'secuencia incompleta'
+        self.registro_intentos.registrar(
+            intento, frase, objeto, color, zona or f'zona_{color}', color, exito,
+            q_agarre_pedida, q_agarre_alcanzada, motivo)
         self.get_logger().info(
-            f'   ➡️  goal p{prioridad}: '
-            f'{[round(v, 2) for v in q_rad]} rad')
+            f'🏁 intento {intento}: exito={exito} (cargando={self.cargando})')
 
-        envio = self.accion.send_goal_async(goal)
-        if not self._esperar(envio, 10.0):
-            return False, 'timeout enviando el goal', 0.0, 0.0
-        handle = envio.result()
-        if handle is None or not handle.accepted:
-            return False, 'el broker RECHAZÓ el goal (ver rechazos.csv del broker)', 0.0, 0.0
-
-        resultado = handle.get_result_async()
-        if not self._esperar(resultado, self.timeout_goal):
-            return False, 'el broker no devolvió resultado', 0.0, 0.0
-        r = resultado.result().result
-        return bool(r.success), r.message, float(r.wait_time_s), float(r.exec_time_s)
-
-    @staticmethod
-    def _esperar(futuro, timeout_s):
-        t0 = time.time()
-        while not futuro.done():
-            if time.time() - t0 > timeout_s:
-                return False
-            time.sleep(0.02)
-        return True
-
-    # 10. Registro de tiempos por meta
-    def _anotar_tiempo(self, decision, intento, meta, prioridad,
-                       t_envio, t_fin, wait_s, exec_s, exito):
+    def _anotar_tiempo(self, decision, intento, meta, prioridad, t_envio, wait_s, exec_s, exito):
         with open(self.ruta_tiempos, 'a', newline='', encoding='utf-8') as f:
             csv.writer(f).writerow([
                 f'{t_envio:.3f}', decision.get('frase', ''), intento, meta, prioridad,
-                f'{t_envio:.3f}', f'{t_fin:.3f}',
                 f'{wait_s:.3f}', f'{exec_s:.3f}', bool(exito),
             ])
 
-    # 11. Cierre
+    def _detener(self):
+        """Limpia la cola de pendientes y regresa el brazo a HOME."""
+        vaciados = 0
+        while True:
+            try:
+                self.cola.get_nowait()
+                vaciados += 1
+            except queue.Empty:
+                break
+        self.get_logger().info(
+            f'⏹️  DETENER: cola limpiada ({vaciados} órdenes descartadas); vuelvo a HOME')
+        self._mover_a(poses.POSE_HOME, 0)
+        self.cargando = False
+
+    # 8. Cierre
     def destroy_node(self):
         self._parar.set()
         self.evento.set()
-        if self.camara is not None:
-            self.camara.detener()
         return super().destroy_node()
 
 

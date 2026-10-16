@@ -1,32 +1,28 @@
 #!/usr/bin/env python3
-""" Calibrador de anclas de cámara del Ítem 2 — ver y extraer las posiciones de los cubos.
+""" Verificador de la visión por estaciones del Ítem 2 — cámara montada en el brazo.
 
-Para qué sirve: la cámara está montada EN EL BRAZO, así que solo ve bien la mesa cuando el
-brazo está en POSE_BUSQUEDA. Con el brazo en esa pose, este script abre la cámara a 640x480,
-muestra la imagen en vivo y deja que ustedes hagan CLIC en las cuatro esquinas de la mesa, en
-orden pos1, pos2, pos3, pos4. El nombre de cada posN debe coincidir con su pose de poses.py:
-    pos1 = abajo_derecha     pos2 = abajo_izquierda
-    pos3 = arriba_derecha    pos4 = arriba_izquierda
-(esquinas tal como se ven en la IMAGEN de la cámara; respetar este orden evita espejar las
-anclas respecto a las poses). Al terminar imprime la cadena exacta para copiar en el orquestador:
+Para qué sirve: la cámara va montada EN EL BRAZO, así que solo ve bien el tapete con el brazo en
+POSE_BUSQUEDA. Con el brazo en esa pose, este script abre la cámara a 640x480, dibuja los cuatro
+rectángulos de estación (estaciones.py) y marca el color que se ve en cada uno. Es la forma de
+comprobar en vivo que las ROIs caen sobre las cuatro esquinas y que los rangos HSV detectan bien
+cada cubo. El número de estación (1..4) es el contrato entre visión y movimiento:
 
-    -p anclas_camara:="['pos1=<x>,<y>','pos2=<x>,<y>','pos3=<x>,<y>','pos4=<x>,<y>']"
+    1 = arriba-izquierda      2 = arriba-derecha
+    3 = abajo-izquierda       4 = abajo-derecha
+
+Los rectángulos NO se calibraron a mano: son los cuadrantes naturales de la imagen 640x480, así
+que no hay nada que "hacer clic". Si movieran la cámara (p. ej. cambiar POSE_BUSQUEDA), no hay que
+recalibrar píxeles; solo revisar que los cubos caigan dentro de su cuadrante.
 
 Uso (solo cámara; el brazo ya está en POSE_BUSQUEDA):
-    python3 herramientas/calibrar_camara.py --guardar foto_anclas.jpg
+    python3 herramientas/calibrar_camara.py --guardar foto_estaciones.jpg
 
 Uso (manda el brazo al broker hasta POSE_BUSQUEDA y luego abre la cámara):
-    python3 herramientas/calibrar_camara.py --mover-brazo --guardar foto_anclas.jpg
-
-Controles en la ventana:
-    clic izquierdo : fija el cubo actual (pos1 -> pos4)
-    r              : reinicia los clics
-    s              : guarda una foto anotada
-    q o ESC        : termina e imprime la cadena de anclas
+    python3 herramientas/calibrar_camara.py --mover-brazo --guardar foto_estaciones.jpg
 
 SIN pantalla (SSH, terminal de Jupyter, error "could not initialize GTK backend"): usa
     python3 herramientas/calibrar_camara.py --headless --mover-brazo
-que NO abre ventana: guarda una foto anotada (rejilla + centros de color) y sale.
+que NO abre ventana: guarda la foto anotada y sale.
 """
 
 import argparse
@@ -35,7 +31,6 @@ import time
 
 ANCHO_FRAME = 640
 ALTO_FRAME = 480
-POSICIONES_ORDEN = ['pos1', 'pos2', 'pos3', 'pos4']
 
 
 def mover_brazo_a_busqueda(paso_rad=1.5, timeout_s=60.0):
@@ -125,10 +120,72 @@ def abrir_camara(cv, indice):
     return None
 
 
-def cadena_anclas(clics):
-    partes = [f"'{nombre}={clics[nombre][0]},{clics[nombre][1]}'"
-              for nombre in POSICIONES_ORDEN if nombre in clics]
-    return "-p anclas_camara:=\"[" + ','.join(partes) + "]\""
+def rangos_hsv():
+    """Rangos HSV por color. Reutiliza los de percepcion_camara si están; si no, los locales."""
+    try:
+        from arm_broker.percepcion_camara import COLORES
+        return COLORES
+    except Exception:
+        return {
+            'rojo': [((0, 120, 70), (10, 255, 255)), ((170, 120, 70), (180, 255, 255))],
+            'amarillo': [((20, 100, 100), (35, 255, 255))],
+            'verde': [((40, 70, 70), (85, 255, 255))],
+            'azul': [((90, 100, 70), (130, 255, 255))],
+        }
+
+
+def detectar_por_estacion(frame):
+    """Devuelve {estación: {'color', 'area', 'cx', 'cy', 'roi'}} mirando cada rectángulo de
+    estaciones.py. Nunca lanza: ante cualquier problema, {}."""
+    try:
+        import cv2 as cv
+        import numpy as np
+        from arm_broker import estaciones
+    except Exception as e:
+        print(f'[CALIBRADOR] falta OpenCV o el paquete arm_broker: {e!r}')
+        return {}
+
+    colores = rangos_hsv()
+    alto, ancho = frame.shape[:2]
+    hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+
+    resultado = {}
+    for est, datos in estaciones.ESTACIONES.items():
+        roi_px = estaciones.escalar_roi(datos['roi'], ancho, alto)
+        x1, y1, x2, y2 = roi_px
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(ancho, x2), min(alto, y2)
+        recorte = hsv[y1:y2, x1:x2]
+
+        color, area, centro = None, 300.0, None
+        if recorte.size:
+            for nombre, franjas in colores.items():
+                mascara = None
+                for bajo, tope in franjas:
+                    m = cv.inRange(recorte, np.array(bajo), np.array(tope))
+                    mascara = m if mascara is None else cv.bitwise_or(mascara, m)
+                mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
+                contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL,
+                                               cv.CHAIN_APPROX_SIMPLE)
+                if not contornos:
+                    continue
+                c = max(contornos, key=cv.contourArea)
+                a = cv.contourArea(c)
+                if a > area:
+                    mo = cv.moments(c)
+                    if mo['m00'] != 0:
+                        area = a
+                        color = nombre
+                        centro = (int(mo['m10'] / mo['m00']), int(mo['m01'] / mo['m00']))
+        resultado[est] = {
+            'color': color,
+            'area': int(area) if color else 0,
+            'cx': (x1 + centro[0]) if centro else 0,
+            'cy': (y1 + centro[1]) if centro else 0,
+            'roi': roi_px,
+        }
+    return resultado
 
 
 def dibujar_rejilla(cv, frame, paso):
@@ -138,59 +195,36 @@ def dibujar_rejilla(cv, frame, paso):
     alto, ancho = frame.shape[:2]
     for x in range(0, ancho, paso):
         cv.line(frame, (x, 0), (x, alto), (128, 128, 128), 1)
-        cv.putText(frame, str(x), (x + 2, 12), cv.FONT_HERSHEY_SIMPLEX,
-                   0.35, (0, 255, 255), 1)
+        cv.putText(frame, str(x), (x + 2, 12), cv.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
     for y in range(0, alto, paso):
         cv.line(frame, (0, y), (ancho, y), (128, 128, 128), 1)
-        cv.putText(frame, str(y), (2, y + 12), cv.FONT_HERSHEY_SIMPLEX,
-                   0.35, (0, 255, 255), 1)
+        cv.putText(frame, str(y), (2, y + 12), cv.FONT_HERSHEY_SIMPLEX, 0.35, (0, 255, 255), 1)
     return frame
 
 
-def detectar_colores(frame):
-    """Devuelve [(color, x, y)] por cubo detectado. Reutiliza percepcion_camara si está;
-    si no, usa el mismo criterio HSV local. Nunca lanza: ante cualquier problema, []."""
-    try:
-        from arm_broker.percepcion_camara import PercepcionCamara
-        return PercepcionCamara()._detectar(frame)
-    except Exception:
-        pass
-    try:
-        import cv2 as cv
-        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
-        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
-        rangos = {
-            'rojo': [((0, 120, 70), (10, 255, 255)), ((170, 120, 70), (180, 255, 255))],
-            'amarillo': [((20, 100, 100), (35, 255, 255))],
-            'verde': [((40, 70, 70), (85, 255, 255))],
-            'azul': [((90, 100, 70), (130, 255, 255))],
-        }
-        salida = []
-        for color, franjas in rangos.items():
-            mascara = None
-            for bajo, alto in franjas:
-                m = cv.inRange(hsv, bajo, alto)
-                mascara = m if mascara is None else cv.bitwise_or(mascara, m)
-            mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
-            mascara = cv.morphologyEx(mascara, cv.MORPH_CLOSE, kernel)
-            contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            if not contornos:
-                continue
-            contorno = max(contornos, key=cv.contourArea)
-            if cv.contourArea(contorno) < 300.0:
-                continue
-            moments = cv.moments(contorno)
-            if moments['m00'] == 0:
-                continue
-            salida.append((color, int(moments['m10'] / moments['m00']),
-                           int(moments['m01'] / moments['m00'])))
-        return salida
-    except Exception:
-        return []
+def anotar(cv, frame, deteccion):
+    """Dibuja el rectángulo de cada estación y el color detectado con su centro."""
+    for est, d in deteccion.items():
+        x1, y1, x2, y2 = d['roi']
+        cv.rectangle(frame, (x1, y1), (x2, y2), (255, 200, 0), 2)
+        etiqueta = f"est{est}: {d['color'] or '-'}"
+        cv.putText(frame, etiqueta, (x1 + 6, y1 + 22), cv.FONT_HERSHEY_SIMPLEX,
+                   0.6, (255, 255, 255), 2)
+        if d['color']:
+            cv.circle(frame, (d['cx'], d['cy']), 8, (255, 255, 255), 2)
+    return frame
+
+
+def imprimir_deteccion(deteccion):
+    print('[CALIBRADOR] color por estación:')
+    for est in sorted(deteccion):
+        d = deteccion[est]
+        print(f"    est{est} roi={d['roi']} color={d['color'] or '(nada)'} "
+              f"area={d['area']} centro=({d['cx']}, {d['cy']})")
 
 
 def capturar_anotada(cv, cap, paso, espera, guardar):
-    """Toma un frame estable (headless), le dibuja rejilla + colores y lo guarda."""
+    """Toma un frame asentado (headless), lo anota con ROIs + colores y lo guarda."""
     print(f'[CALIBRADOR] esperando {espera:.1f}s a que se asiente la imagen...')
     time.sleep(espera)
     frame = None
@@ -203,40 +237,25 @@ def capturar_anotada(cv, cap, paso, espera, guardar):
         print('[CALIBRADOR] no se pudo leer ningún frame de la cámara')
         return
 
-    detecciones = detectar_colores(frame)
-    for color, x, y in detecciones:
-        cv.circle(frame, (x, y), 8, (255, 255, 255), 2)
-        cv.putText(frame, color, (x + 10, y), cv.FONT_HERSHEY_SIMPLEX,
-                   0.6, (255, 255, 255), 2)
+    anotar(cv, frame, detectar_por_estacion(frame))
     dibujar_rejilla(cv, frame, paso)
-
     cv.imwrite(guardar, frame)
     print(f'[CALIBRADOR] foto guardada en: {guardar}')
-    print('[CALIBRADOR] centros detectados (x, y):')
-    if detecciones:
-        for color, x, y in detecciones:
-            print(f'    {color}: ({x}, {y})')
-    else:
-        print('    (ninguno; abre la foto y lee las coordenadas con la rejilla)')
-    print('\nAsigna cada esquina a pos1..pos4 (coincidiendo con las poses de poses.py):')
-    print('    pos1 = abajo_derecha    pos2 = abajo_izquierda')
-    print('    pos3 = arriba_derecha   pos4 = arriba_izquierda')
-    print('(tal como se ven en la IMAGEN de la cámara) y pasa la cadena. Ejemplo:')
-    print("    -p anclas_camara:=\"['pos1=537,385','pos2=114,380','pos3=520,87','pos4=122,90']\"")
+    imprimir_deteccion(detectar_por_estacion(frame))
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Calibra las anclas de color de la cámara.')
+    ap = argparse.ArgumentParser(description='Verifica la visión por estaciones (ROIs).')
     ap.add_argument('--indice', type=int, default=None,
                     help='índice de la cámara (por defecto: autodetecta 0..3)')
     ap.add_argument('--guardar', metavar='RUTA', default=None,
-                    help='guarda el frame anotado en esta ruta (p. ej. foto_anclas.jpg)')
+                    help='guarda el frame anotado en esta ruta (p. ej. foto_estaciones.jpg)')
     ap.add_argument('--mover-brazo', action='store_true',
-                    help='manda al broker un goal move_arm hasta POSE_BUSQUEDA antes de abrir la cámara')
+                    help='manda un goal move_arm hasta POSE_BUSQUEDA antes de abrir la cámara')
     ap.add_argument('--paso', type=float, default=1.5,
                     help='paso de troceado en radianes para ir a POSE_BUSQUEDA (default 1.5)')
     ap.add_argument('--headless', action='store_true',
-                    help='sin ventana (no necesita GTK/DISPLAY): guarda una foto anotada y sale')
+                    help='sin ventana: guarda una foto anotada y sale')
     ap.add_argument('--espera', type=float, default=2.0,
                     help='segundos de asentado antes de capturar en --headless (default 2.0)')
     ap.add_argument('--rejilla', type=int, default=40,
@@ -249,13 +268,12 @@ def main():
         sys.exit('FALLO: falta OpenCV. Instala python3-opencv (Jetson) o pip install opencv-python.')
 
     print('=' * 64)
-    print('  CALIBRADOR DE ANCLAS DE CÁMARA (Ítem 2)')
+    print('  VERIFICADOR DE VISIÓN POR ESTACIONES (Ítem 2)')
+    print('  estaciones: 1=arriba-izq  2=arriba-der  3=abajo-izq  4=abajo-der')
     if args.headless:
         print('  MODO HEADLESS: sin ventana; guarda una foto anotada y sale')
-        print('  (no necesita GTK ni DISPLAY)')
     else:
-        print('  Orden de clic: pos1, pos2, pos3, pos4')
-        print('  r=reiniciar  s=guardar  q/ESC=terminar y mostrar anclas')
+        print('  q o ESC para salir')
     print('=' * 64)
 
     if args.mover_brazo:
@@ -269,66 +287,32 @@ def main():
     if args.headless:
         try:
             capturar_anotada(cv, cap, args.rejilla, args.espera,
-                             args.guardar or 'foto_anclas.jpg')
+                             args.guardar or 'foto_estaciones.jpg')
         finally:
             cap.release()
         return
 
-    ventana = 'calibrar_camara - clic en los cubos (pos1..pos4)'
-    clics = {}
-    estado = {'frame': None}
-
-    def al_click(evento, x, y, flags, param):
-        if evento != cv.EVENT_LBUTTONDOWN:
-            return
-        for nombre in POSICIONES_ORDEN:
-            if nombre not in clics:
-                clics[nombre] = (int(x), int(y))
-                print(f'  {nombre} = ({x}, {y})')
-                break
-        else:
-            print('  ya están las 4 posiciones; pulsa r para reiniciar')
-
+    ventana = 'calibrar_camara - vision por estaciones'
     cv.namedWindow(ventana)
-    cv.setMouseCallback(ventana, al_click)
-
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 time.sleep(0.05)
                 continue
-            estado['frame'] = frame
-
-            for nombre, (x, y) in clics.items():
-                cv.circle(frame, (x, y), 8, (255, 255, 255), 2)
-                cv.putText(frame, nombre, (x + 10, y), cv.FONT_HERSHEY_SIMPLEX,
-                           0.6, (255, 255, 255), 2)
-
-            faltan = [n for n in POSICIONES_ORDEN if n not in clics]
-            pista = f'clic: {faltan[0]}' if faltan else 'completo (q para mostrar anclas)'
-            cv.putText(frame, pista, (10, 25), cv.FONT_HERSHEY_SIMPLEX,
+            anotar(cv, frame, detectar_por_estacion(frame))
+            cv.putText(frame, 'q/ESC: salir', (10, 25), cv.FONT_HERSHEY_SIMPLEX,
                        0.7, (0, 255, 0), 2)
             cv.imshow(ventana, frame)
-
             tecla = cv.waitKey(1) & 0xFF
             if tecla in (ord('q'), 27):
                 break
-            if tecla == ord('r'):
-                clics.clear()
-                print('  reiniciado')
             if tecla == ord('s') and args.guardar:
                 cv.imwrite(args.guardar, frame)
                 print(f'  foto guardada en {args.guardar}')
     finally:
         cap.release()
         cv.destroyAllWindows()
-
-    if len(clics) == len(POSICIONES_ORDEN):
-        print('\nAnclas calibradas:')
-        print(cadena_anclas(clics))
-    else:
-        print(f'\nFaltaron posiciones ({len(clics)}/4); no se generó la cadena completa.')
 
 
 if __name__ == '__main__':

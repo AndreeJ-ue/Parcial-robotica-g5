@@ -24,8 +24,10 @@ setup(
             'interprete_ordenes = arm_broker.interprete_ordenes:main',
             # Ítem 3: transcriptor de voz
             'transcriptor_voz = arm_broker.transcriptor_voz:main',
-            # Ítem 2: orquestador completo (cámara + poses + pinza + cola)
+            # Ítem 2: orquestador (poses + pinza + cola; la cámara es un nodo aparte)
             'orquestador = arm_broker.orquestador:main',
+            # Ítem 2: nodo de percepción por color (cámara montada en el brazo)
+            'percepcion_camara = arm_broker.percepcion_camara:main',
             # Ítem 2: cliente de frases por teclado para pruebas
             'cliente_texto = arm_broker.cliente_texto:main',
         ],

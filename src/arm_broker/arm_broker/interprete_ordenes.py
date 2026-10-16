@@ -14,6 +14,7 @@ from arm_broker_interfaces.srv import InterpretarOrden
 
 from arm_broker import cliente_laya
 from arm_broker import clasificador_palabras_clave as clasificador
+from arm_broker import validez
 
 
 class NodoInterprete(Node):
@@ -89,6 +90,17 @@ class NodoInterprete(Node):
                     self.endpoint_laya, self.clave_laya, frase, self.limite_laya,
                     self.catalogo_objetos, self.catalogo_colores, self.catalogo_acciones)
 
+                # Puerta de coherencia: si LAYA no reconoció una acción de la lista cerrada, su
+                # respuesta no sirve para mover el brazo. En vez de propagarla, se descarta y se
+                # resuelve con el clasificador local (más abajo).
+                if not validez.accion_valida(decision):
+                    raise ValueError(
+                        f'LAYA no reconoció ninguna acción válida (dijo {decision.get("accion")!r})')
+
+                # Y aunque la acción sí sea válida, se reaplican las reglas duras: una frase con
+                # palabra vetada queda permitido=False pase lo que pase.
+                validez.corregir(decision, frase)
+
                 t_total = time.time() - t0
                 t_red = min(self.red_base, t_total)
                 t_computo = max(0.0, t_total - t_red)
@@ -109,6 +121,7 @@ class NodoInterprete(Node):
 
         # Camino de respaldo: clasificador local (o fue pedido explícitamente)
         decision = clasificador.clasificar(frase)
+        validez.corregir(decision, frase)
         t_total = time.time() - t0
         self._volcar(respuesta, **decision, degradada=True, fuente='palabras_clave',
                      t_total=t_total, t_red=0.0, t_computo=0.0)

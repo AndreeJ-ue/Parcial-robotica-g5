@@ -55,6 +55,28 @@ def _campo(answers, qid, por_defecto):
     return por_defecto
 
 
+def _depurar(decision, objetos, colores, acciones):
+    """Normaliza lo que devolvió LAYA contra el catálogo cerrado. El modelo solo puede elegir
+    una de las opciones que le dimos, pero por seguridad se pasa todo por minúsculas y se
+    descarta cualquier valor fuera de la lista (queda 'desconocido'/'ninguno'); así una
+    respuesta inventada no llega nunca como si fuera válida. Devuelve cuántos campos quedaron
+    realmente reconocidos, para poder detectar respuestas basura."""
+    catalogos = (
+        ('accion', [str(a).lower() for a in acciones] + ['desconocido']),
+        ('objeto', [str(o).lower() for o in objetos] + ['desconocido']),
+        ('color', [str(c).lower() for c in colores] + ['ninguno']),
+    )
+    reconocidos = 0
+    for clave, permitidos in catalogos:
+        valor = str(decision.get(clave, '')).strip().lower()
+        if valor in permitidos:
+            decision[clave] = valor
+            reconocidos += 1
+        else:
+            decision[clave] = 'desconocido' if clave != 'color' else 'ninguno'
+    return reconocidos
+
+
 def preguntar(url, api_key, frase, timeout_s, objetos, colores, acciones):
     """Le plantea a LAYA una consulta tipada sobre `frase`, respetando timeout_s al pie de la
     letra. Devuelve (dict_decisión, json_crudo). Si algo sale mal (timeout, HTTP de error, JSON
@@ -78,7 +100,7 @@ def preguntar(url, api_key, frase, timeout_s, objetos, colores, acciones):
     objeto = str(_campo(answers, 'objeto', 'desconocido'))
     color = str(_campo(answers, 'color', 'ninguno'))
     prioridad_cruda = _campo(answers, 'prioridad', 1)
-    permitido_crudo = _campo(answers, 'permitido', True)
+    permitido_crudo = _campo(answers, 'permitido', False)
 
     try:
         prioridad = int(round(float(prioridad_cruda)))
@@ -100,6 +122,14 @@ def preguntar(url, api_key, frase, timeout_s, objetos, colores, acciones):
         'permitido': permitido,
         'motivo': '' if permitido else 'LAYA marcó la orden como no permitida',
     }
+
+    # Si LAYA no reconoció ni una sola pregunta, la respuesta no es confiable: se marca como no
+    # permitida para que el intérprete prefiera el clasificador local. Regla dura: ante duda, NO
+    # se ejecuta. Un proveedor caído o que contesta cualquier cosa nunca debe habilitar un agarre.
+    if _depurar(decision, objetos, colores, acciones) == 0:
+        decision['permitido'] = False
+        decision['motivo'] = 'respuesta de LAYA sin campos reconocibles (posible servicio caído)'
+
     return decision, json_resp
 
 

@@ -10,7 +10,7 @@ VERBOS = {
     'agarrar': ['agarra', 'agarrar', 'recoge', 'recoger', 'toma', 'tomar', 'coge', 'coger'],
     'soltar': ['suelta', 'soltar', 'deja', 'dejar', 'deposita', 'depositar', 'coloca', 'colocar'],
     'mover': ['mueve', 'mover', 'lleva', 'llevar', 'trae', 'traer', 'muevete', 'anda'],
-    'detener': ['para', 'parar', 'detente', 'detener', 'alto', 'stop', 'cancela', ],
+    'detener': ['para', 'parar', 'detente', 'detener', 'alto', 'stop', 'cancela', 'cancelar'],
 }
 
 # Sinónimos por forma de objeto.
@@ -41,6 +41,13 @@ def _primera_clave(frase, tabla):
     return None
 
 
+def tiene_vetada(frase):
+    """True si la frase nombra algo de VETADAS. Es la única regla sobre esa lista, y validez.py
+    la reutiliza para que LAYA y el clasificador local la apliquen igual."""
+    texto = (frase or '').lower()
+    return any(palabra in texto for palabra in VETADAS)
+
+
 def clasificar(frase):
     """Entrada: frase en español (str). Salida: dict con los MISMOS campos que arma
     cliente_laya.preguntar(), para que interprete_ordenes lo trate igual sin importar cuál de
@@ -51,9 +58,9 @@ def clasificar(frase):
     objeto = _primera_clave(texto, FORMAS) or 'desconocido'
     color = _primera_clave(texto, TONOS) or 'ninguno'
 
-    tiene_vetada = any(palabra in texto for palabra in VETADAS)
-    permitido = not tiene_vetada and accion != 'desconocido'
-    if tiene_vetada:
+    vetada = tiene_vetada(texto)
+    permitido = not vetada and accion != 'desconocido'
+    if vetada:
         motivo = 'la frase nombra algo fuera de lo permitido (palabra clave vetada)'
     elif accion == 'desconocido':
         motivo = 'no se reconoció ninguna acción válida en la frase'

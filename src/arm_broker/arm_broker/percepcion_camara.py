@@ -1,23 +1,49 @@
-""" Percepción por cámara: qué color hay en cada posición de la mesa — Ítem 2 """
+""" Nodo de percepción por color de la cámara montada en el brazo — Ítem 2 (Pregunta 2) """
 
-""" La cámara detecta los cubos por máscara HSV (los mismos rangos de color del problema 5) y
-asigna cada cubo a una de las cuatro posiciones usando ANCLAS de píxel calibradas. Con eso se
-construye en vivo el mapa color -> 'pos1'..'pos4', porque el color de cada esquina NO se conoce
-de antemano.
+""" El driver de la cámara publica sensor_msgs/Image (por defecto en /image_raw). Este nodo lo
+suscribe, pasa el fotograma a OpenCV con cv_bridge y mira el color de CADA estación (los
+rectángulos de estaciones.py). Con eso arma un MAPA {estación → color}, que es lo que permite
+"encontrar" el color pedido sin importar en qué esquina esté.
 
-El nodo orquestador llama a esperar_color(color, timeout) y recibe la posición estable, o None
-si el color pedido no está sobre la mesa. Esta clase NUNCA publica en ROS: solo mira video. """
+La cámara va montada en el brazo, así que la detección solo es correcta con el brazo en
+POSE_BUSQUEDA; el orquestador se encarga de colocarlo ahí antes de leer.
 
-import threading
+Publica en /objeto_detectado (std_msgs/String, JSON):
+    {color, presente, estable, cx, cy, t, mapa_estaciones, detecciones}
+  - color           : color dominante (la mancha más grande de la imagen).
+  - presente        : hay algún color en la imagen.
+  - estable         : el MAPA COMPLETO {estación → color} se repitió 'confirmaciones' fotogramas.
+  - mapa_estaciones : {"1": "rojo", "2": null, ...} -> color visto en cada estación.
+  - detecciones     : [{estacion, color, area, cx, cy}] (cx,cy en píxeles de la imagen).
+
+Este nodo SOLO publica la detección: no mueve el brazo ni publica /joint_states.
+
+Incluye un watchdog que avisa si no llega ninguna imagen en 'watchdog_s' segundos (casi siempre
+un tópico mal configurado) y un log de TRANSICIÓN cada vez que el mapa estable cambia, para ver
+en vivo que sí se está viendo la mesa sin llenar la consola de un print por frame. """
+
+import json
 import time
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
 
 try:
     import cv2 as cv
-    CV_DISPONIBLE = True
-except ImportError:
-    CV_DISPONIBLE = False
+    import numpy as np
+    from cv_bridge import CvBridge
+    VISION_DISPONIBLE = True
+except ImportError as _e:                       # en la Jetson con ROS estas libs están; la
+    VISION_DISPONIBLE = False                  # guarda evita que el import tumbe el nodo
+    _FALTA_VISION = repr(_e)
 
-# 1. Rangos HSV por color (tomados del problema 5; ROJO lleva dos franjas por el tono 0/180)
+from arm_broker import estaciones
+
+
+# Rangos HSV de cada color sobre el tapete (los del script probado con el kit). El rojo lleva dos
+# franjas porque el tono 0/180 corta la rueda de color.
 COLORES = {
     'rojo': [((0, 120, 70), (10, 255, 255)), ((170, 120, 70), (180, 255, 255))],
     'amarillo': [((20, 100, 100), (35, 255, 255))],
@@ -25,166 +51,209 @@ COLORES = {
     'azul': [((90, 100, 70), (130, 255, 255))],
 }
 
-AREA_MINIMA = 300.0
-FRAMES_ESTABILIDAD = 8
-ANCHO_FRAME = 640
-ALTO_FRAME = 480
 
+class PercepcionCamara(Node):
 
-class PercepcionCamara:
-    """Detecta colores y los asigna a posiciones según anclas de píxel."""
+    def __init__(self):
+        super().__init__('percepcion_camara')
 
-    def __init__(self, anclas=None, radio_ancla=70.0, indice_camara=None,
-                 frames_estabilidad=FRAMES_ESTABILIDAD, area_minima=AREA_MINIMA):
-        self.anclas = dict(anclas or {})
-        if not self.anclas:
-            self.anclas = {
-                'pos1': (537.0, 385.0),
-                'pos2': (114.0, 380.0),
-                'pos3': (520.0, 87.0),
-                'pos4': (122.0, 90.0),
-            }
-        self.radio_ancla = float(radio_ancla)
-        self.indice_camara = indice_camara
-        self.frames_estabilidad = int(frames_estabilidad)
-        self.area_minima = float(area_minima)
+        self.declare_parameter('topico_imagen', '/image_raw')
+        self.declare_parameter('topico_salida', '/objeto_detectado')
+        self.declare_parameter('area_min', 300)               # píxeles mínimos del manchón de color
+        self.declare_parameter('confirmaciones', 5)           # fotogramas iguales para "estable"
+        self.declare_parameter('watchdog_s', 5.0)             # avisa si no llegan imágenes
+        self.declare_parameter('log_estado_periodico_s', 0.0)  # 0 = off; >0 = log cada N s
 
-        self.lock = threading.Lock()
-        self.mapa = {}
-        self.detecciones = []
-        self._ultimo_frame = None
-        self.disponible = bool(CV_DISPONIBLE)
-        self._activa = threading.Event()
-        self._cap = None
-        self._hilo = None
+        self.area_min = float(self.get_parameter('area_min').value)
+        self.confirmaciones = int(self.get_parameter('confirmaciones').value)
+        self.watchdog_s = float(self.get_parameter('watchdog_s').value)
+        self.log_periodico_s = float(self.get_parameter('log_estado_periodico_s').value)
 
-    # 2. Apertura de cámara
-    def abrir(self):
-        """Abre la primera cámara que entregue imagen; devuelve True si lo logra."""
-        if not CV_DISPONIBLE:
-            print('[CAMARA] OpenCV no está disponible: sin percepción')
-            self.disponible = False
-            return False
-        indices = [self.indice_camara] if self.indice_camara is not None else [0, 1, 2, 3]
-        for indice in indices:
-            cap = cv.VideoCapture(indice)
-            if cap.isOpened():
-                cap.set(cv.CAP_PROP_FRAME_WIDTH, ANCHO_FRAME)
-                cap.set(cv.CAP_PROP_FRAME_HEIGHT, ALTO_FRAME)
-                ok, _ = cap.read()
-                if ok:
-                    self._cap = cap
-                    self.indice_camara = indice
-                    self.disponible = True
-                    print(f'[CAMARA] abierta en índice {indice}')
-                    return True
-            cap.release()
-        self.disponible = False
-        print('[CAMARA] no se encontró cámara disponible')
-        return False
+        self.ultimo_mapa = None           # clave del último mapa visto (para contar la racha)
+        self.racha = 0
+        self.mapa_estable_previo = None
+        self.n_frames = 0
+        self.ultima_imagen_t = None       # None = todavía no llegó ninguna imagen
+        self._watchdog_avisado = False
 
-    # 3. Hilo de captura
-    def iniciar(self):
-        """Arranca la captura en su propio hilo (cámara fija sobre la mesa)."""
-        if not self.abrir():
-            return False
-        self._activa.set()
-        self._hilo = threading.Thread(target=self._hilo_captura, daemon=True)
-        self._hilo.start()
-        return True
+        self.pub = self.create_publisher(
+            String, str(self.get_parameter('topico_salida').value), 10)
 
-    def detener(self):
-        self._activa.clear()
-        if self._hilo is not None:
-            self._hilo.join(timeout=2.0)
-        if self._cap is not None:
-            self._cap.release()
+        if VISION_DISPONIBLE:
+            self.bridge = CvBridge()
+        else:
+            self.bridge = None
+            self.get_logger().error(
+                f'falta OpenCV/cv_bridge ({_FALTA_VISION}); el nodo publicará vacío. '
+                f'Instala python3-opencv y cv_bridge.')
 
-    def _hilo_captura(self):
-        try:
-            while self._activa.is_set():
-                ok, frame = self._cap.read()
-                if not ok:
-                    time.sleep(0.05)
-                    continue
-                detecciones = self._detectar(frame)
-                mapa = self._asignar_posiciones(detecciones)
-                with self.lock:
-                    self.detecciones = detecciones
-                    self.mapa = mapa
-                    self._ultimo_frame = frame
-        finally:
-            if self._cap is not None:
-                self._cap.release()
+        self.create_subscription(
+            Image, str(self.get_parameter('topico_imagen').value), self._al_imagen, 10)
+        self.create_timer(1.0, self._chequear_watchdog)
 
-    # 4. Detección de color
-    @staticmethod
-    def _mascara_color(hsv, rangos):
-        total = None
-        for bajo, alto in rangos:
-            m = cv.inRange(hsv, bajo, alto)
-            total = m if total is None else cv.bitwise_or(total, m)
-        return total
+        self.get_logger().info('=' * 60)
+        self.get_logger().info('  PERCEPCION_CAMARA LISTO (detección por 4 estaciones)')
+        self.get_logger().info(f'  imagen : {self.get_parameter("topico_imagen").value}')
+        self.get_logger().info(f'  salida : {self.get_parameter("topico_salida").value}')
+        for est, datos in estaciones.ESTACIONES.items():
+            self.get_logger().info(f'  estación {est}: roi={datos["roi"]}')
+        self.get_logger().info('=' * 60)
 
-    def _detectar(self, frame):
-        """Devuelve [(color, cx, cy), ...] con el blob de mayor área por color."""
-        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+    # 1. Watchdog
+    def _chequear_watchdog(self):
+        """Avisa UNA vez si nunca llegó una imagen, o cada watchdog_s si el flujo se corta."""
+        ahora = time.time()
+        if self.ultima_imagen_t is None:
+            if not self._watchdog_avisado and self.watchdog_s > 0:
+                self._watchdog_avisado = True
+                topico = self.get_parameter('topico_imagen').value
+                self.get_logger().error(
+                    f'⚠️  no llegó NINGUNA imagen en {topico} tras {self.watchdog_s:.0f}s. '
+                    f'Comprueba con: ros2 topic list · ros2 topic hz {topico} · '
+                    f'ros2 topic info {topico} -v (el driver publica por defecto en /image_raw)')
+            return
+        if ahora - self.ultima_imagen_t > self.watchdog_s:
+            self.get_logger().warn(
+                f'⚠️  sin imágenes nuevas hace {ahora - self.ultima_imagen_t:.1f}s '
+                f'(¿se cayó la cámara?)',
+                throttle_duration_sec=self.watchdog_s)
+
+    # 2. Detección por estación
+    def _detectar(self, imagen):
+        """Mira el color dentro de cada estación (rectángulo de estaciones.py).
+
+        Devuelve (mapa, detalle):
+          mapa   = {estación: color}  (color None si no hay cubo en esa estación)
+          detalle= {estación: {color, area, cx, cy}} con cx,cy en píxeles de la imagen."""
+        alto, ancho = imagen.shape[:2]
+        hsv = cv.cvtColor(imagen, cv.COLOR_BGR2HSV)
         kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
-        resultado = []
-        for nombre, rangos in COLORES.items():
-            mascara = self._mascara_color(hsv, rangos)
-            mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
-            mascara = cv.morphologyEx(mascara, cv.MORPH_CLOSE, kernel)
-            contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            if not contornos:
-                continue
-            contorno = max(contornos, key=cv.contourArea)
-            if cv.contourArea(contorno) < self.area_minima:
-                continue
-            m = cv.moments(contorno)
-            if m['m00'] == 0:
-                continue
-            cx = int(m['m10'] / m['m00'])
-            cy = int(m['m01'] / m['m00'])
-            resultado.append((nombre, cx, cy))
-        return resultado
 
-    # 5. Asignación a posiciones por ancla más cercana
-    def _asignar_posiciones(self, detecciones):
-        """Mapa color -> posición usando la ancla dentro de radio_ancla más cercana."""
         mapa = {}
-        for color, cx, cy in detecciones:
-            mejor, dist_mejor = None, None
-            for posicion, (ax, ay) in self.anclas.items():
-                dist = ((cx - ax) ** 2 + (cy - ay) ** 2) ** 0.5
-                if dist <= self.radio_ancla and (dist_mejor is None or dist < dist_mejor):
-                    mejor, dist_mejor = posicion, dist
-            if mejor is not None:
-                mapa[color] = mejor
-        return mapa
+        detalle = {}
 
-    # 6. Consulta desde el orquestador
-    def mapa_actual(self):
-        with self.lock:
-            return dict(self.mapa)
+        for est, datos in estaciones.ESTACIONES.items():
+            x1, y1, x2, y2 = estaciones.escalar_roi(datos['roi'], ancho, alto)
+            x1 = max(0, min(ancho - 1, x1))
+            y1 = max(0, min(alto - 1, y1))
+            x2 = max(0, min(ancho, x2))
+            y2 = max(0, min(alto, y2))
+            recorte = hsv[y1:y2, x1:x2]
 
-    def leer_frame(self):
-        """Devuelve una copia del último frame capturado (o None). Útil para ver/guardar."""
-        with self.lock:
-            return None if self._ultimo_frame is None else self._ultimo_frame.copy()
+            color, area, centro = None, self.area_min, None
+            if recorte.size:
+                for nombre, franjas in COLORES.items():
+                    mascara = None
+                    for bajo, tope in franjas:
+                        m = cv.inRange(recorte, np.array(bajo), np.array(tope))
+                        mascara = m if mascara is None else cv.bitwise_or(mascara, m)
+                    mascara = cv.morphologyEx(mascara, cv.MORPH_OPEN, kernel)
+                    contornos, _ = cv.findContours(mascara, cv.RETR_EXTERNAL,
+                                                   cv.CHAIN_APPROX_SIMPLE)
+                    if not contornos:
+                        continue
+                    c = max(contornos, key=cv.contourArea)
+                    a = cv.contourArea(c)
+                    if a > area:
+                        mo = cv.moments(c)
+                        if mo['m00'] != 0:
+                            area = a
+                            color = nombre
+                            centro = (int(mo['m10'] / mo['m00']), int(mo['m01'] / mo['m00']))
 
-    def esperar_color(self, color, timeout_s=8.0):
-        """Espera detección ESTABLE del color y devuelve su posición, o None al agotar el tiempo."""
-        color = str(color).lower()
-        t0 = time.time()
-        estable, conteo = None, 0
-        while time.time() - t0 < timeout_s:
-            posicion = self.mapa_actual().get(color)
-            if posicion is not None and posicion == estable:
-                conteo += 1
-            else:
-                estable, conteo = posicion, 1
-            if posicion is not None and conteo >= self.frames_estabilidad:
-                return posicion
-            time.sleep(0.05)
-        return None
+            mapa[est] = color
+            detalle[est] = {
+                'color': color,
+                'area': int(area) if color else 0,
+                'cx': (x1 + centro[0]) if centro else 0,
+                'cy': (y1 + centro[1]) if centro else 0,
+            }
+
+        return mapa, detalle
+
+    # 3. Callback de imagen
+    def _al_imagen(self, msg):
+        # Marcar la llegada de ESTA imagen de inmediato: así el watchdog calla aunque la
+        # conversión o la detección fallen más abajo.
+        self.ultima_imagen_t = time.time()
+        self.n_frames += 1
+        if self.n_frames == 1:
+            self.get_logger().info(
+                f'📷 primera imagen en {self.get_parameter("topico_imagen").value} '
+                f'({msg.width}x{msg.height}, encoding={msg.encoding})')
+
+        if self.bridge is None:
+            self._publicar({}, {}, None, 0, 0, False)
+            return
+
+        try:
+            imagen = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        except Exception as e:
+            self.get_logger().warn(f'no pude convertir la imagen: {e!r}',
+                                   throttle_duration_sec=2.0)
+            return
+
+        mapa, detalle = self._detectar(imagen)
+
+        # Color dominante global (la mancha más grande), por compatibilidad con el formato viejo.
+        mejor = max(detalle, key=lambda e: detalle[e]['area'], default=None)
+        if mejor is not None and detalle[mejor]['color']:
+            color, cx, cy = detalle[mejor]['color'], detalle[mejor]['cx'], detalle[mejor]['cy']
+        else:
+            color, cx, cy = None, 0, 0
+
+        # Racha de fotogramas con el MISMO mapa {estación → color}.
+        clave = tuple((e, mapa[e]) for e in sorted(mapa))
+        if clave == self.ultimo_mapa:
+            self.racha += 1
+        else:
+            self.ultimo_mapa = clave
+            self.racha = 1
+        estable = self.racha >= self.confirmaciones
+
+        # Log de TRANSICIÓN (no por frame): se ve en la terminal cada vez que el mapa estable
+        # cambia. Es lo que el orquestador está esperando.
+        if estable and clave != self.mapa_estable_previo:
+            self.mapa_estable_previo = clave
+            self.get_logger().info(f'🎯 mapa ESTABLE: {mapa}  ({detalle})')
+        elif not estable and self.mapa_estable_previo is not None and self.racha == 1:
+            self.get_logger().info(f'… mapa inestable: {mapa}')
+            self.mapa_estable_previo = None
+
+        if self.log_periodico_s > 0:
+            self.get_logger().info(
+                f'estado: mapa={mapa} estable={estable}',
+                throttle_duration_sec=self.log_periodico_s)
+
+        self._publicar(mapa, detalle, color, cx, cy, estable)
+
+    def _publicar(self, mapa, detalle, color, cx, cy, estable):
+        salida = String()
+        salida.data = json.dumps({
+            'color': color,
+            'presente': color is not None,
+            'estable': bool(estable),
+            'cx': int(cx),
+            'cy': int(cy),
+            't': time.time(),
+            'mapa_estaciones': {str(e): mapa[e] for e in mapa},
+            'detecciones': [dict(estacion=e, **detalle[e]) for e in detalle],
+        })
+        self.pub.publish(salida)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    nodo = PercepcionCamara()
+    try:
+        rclpy.spin(nodo)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        nodo.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

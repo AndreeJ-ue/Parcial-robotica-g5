@@ -30,6 +30,7 @@ Aguas abajo, quien mueve el brazo es el ítem 2 (`ITEM_2_BRAZO.md`).
 | `src/arm_broker_interfaces/srv/InterpretarOrden.srv` | La interfaz: servicio `/interpretar_orden` (petición `frase` + `forzar_clasificador`; respuesta tipada). |
 | `src/arm_broker/arm_broker/interprete_ordenes.py` | El nodo: expone el servicio, decide entre LAYA y el clasificador y mide tiempos. |
 | `src/arm_broker/arm_broker/cliente_laya.py` | Único módulo HTTP con LAYA: arma las preguntas tipadas y lee la respuesta. |
+| `src/arm_broker/arm_broker/validez.py` | Reglas duras compartidas: acción válida + palabras vetadas (se aplican tanto a LAYA como al clasificador). |
 | `src/arm_broker/arm_broker/clasificador_palabras_clave.py` | Respaldo local sin red ni IA (prioridad siempre 1). |
 | `herramientas/probar_laya.py` | Prueba LAYA **sin ROS 2**. |
 | `herramientas/medir_item1.py` | Mide **latencia y exactitud** sobre las 50 frases. |
@@ -54,7 +55,12 @@ frase ──► interprete_ordenes.atender()
 ```
 
 - `cliente_laya.py` arma 5 preguntas tipadas (`choice` para acción/objeto/color, `score` para
-  prioridad, `noul` para permitido) y hace `POST {url}/v1/systemone`.
+  prioridad, `noul` para permitido) y hace `POST {url}/v1/systemone`. Su `permitido` es **fail-safe**
+  (`False` por defecto) y descarta cualquier valor fuera del catálogo cerrado.
+- `validez.py` reaplica las reglas duras al resultado, venga de donde venga: una frase con palabra
+  vetada queda `permitido=False` aunque LAYA diga que sí, y una acción fuera de la lista cerrada
+  (`agarrar/soltar/mover/detener`) también. Si LAYA no reconoce la acción, el intérprete **cae al
+  clasificador local** en vez de propagar una decisión inservible.
 - `clasificador_palabras_clave.py` usa diccionarios de sinónimos + palabras vetadas. Devuelve
   `permitido=False` si hay palabra vetada o acción desconocida.
 

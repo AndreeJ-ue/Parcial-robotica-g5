@@ -69,7 +69,8 @@ class Pinza:
                         f"[PINZA] vía PRIMARIA lista: acción '{self.nombre_accion}'")
                     return
                 self.nodo.get_logger().warn(
-                    f"[PINZA] la acción '{self.nombre_accion}' no responde")
+                    f"[PINZA] la acción '{self.nombre_accion}' no responde",
+                    throttle_duration_sec=5.0)
 
             if self.usar_pymycobot_si_falla:
                 self.serie = pinza_pymycobot.PinzaPymycobot(
@@ -80,8 +81,14 @@ class Pinza:
                     self.nodo.get_logger().info('[PINZA] vía de respaldo: pymycobot')
                     return
 
-            self.nodo.get_logger().warn(
-                '[PINZA] sin vía disponible: el agarre no cerrará la pinza')
+            # Sin vía todavía: no se marca como descubierta, para volver a intentarlo en el
+            # próximo abrir/cerrar (el servidor de la acción puede aparecer más tarde).
+            if self.via is None:
+                self._descubierto = False
+                self.nodo.get_logger().warn(
+                    '[PINZA] sin vía disponible todavía: el agarre no cerrará la pinza '
+                    '(se reintenta)',
+                    throttle_duration_sec=5.0)
 
     # 2. API del orquestador
     def abrir(self):

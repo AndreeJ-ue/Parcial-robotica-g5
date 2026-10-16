@@ -1,61 +1,63 @@
+PLAN — Estado del proyecto (arquitectura por estaciones)
+
 1. Objetivo
-Eliminar la necesidad de introducir las posiciones de calibración manualmente cada vez que se
-ejecute el programa, fijando en el código los datos ya calibrados. La lógica de selección de pose
-por posición YA EXISTE en la arquitectura actual; este plan solo revisa y ajusta DATOS.
+Tener la cadena completa voz/texto -> decisión -> brazo sin datos de calibración puestos a mano
+en cada corrida: los datos ya calibrados viven fijos en el código y la visión es un nodo ROS
+aparte. La cámara va MONTADA EN EL BRAZO, así que la percepción solo es válida con el brazo en
+POSE_BUSQUEDA.
 
-Flujo actual (sin cambios de lógica):
-- La cámara detecta un cubo y obtiene (color, cx, cy)            [percepcion_camara.py:_detectar]
-- Se asigna a la posición de la mesa más cercana por distancia euclídea entre (cx, cy) y las
-  anclas de píxel fijas pos1..pos4                                 [percepcion_camara.py:_asignar_posiciones]
-- El mapa color -> posición se construye en vivo: el color SOLO identifica el cubo, nunca decide
-  la pose. Las anclas y las poses son independientes del color.
-- La pose J1-J6 de recogida sale de la posición detectada         [poses.py:POSICIONES_CUBO]
-- El orquestador trocea el movimiento y manda goals al broker      [orquestador.py:_mover_hacia]
-- Único publicador de /joint_states: el broker                     [broker.py:mover]
+2. Arquitectura (ítem 2)
+   cámara (/image_raw) -> percepcion_camara -> /objeto_detectado  (JSON: {estación -> color})
+   /orden_decidida    -> orquestador -> goals move_arm -> broker -> /joint_states -> brazo
+   Regla dura: SOLO el broker publica /joint_states.
 
-2. Datos Fijos a Utilizar (ya calibrados)
-Base de calibración: POSE_BUSQUEDA = [20, -8, -21, -54, 0, -22]  [poses.py]
+   Módulos (src/arm_broker/arm_broker/):
+   - estaciones.py        FUENTE ÚNICA DE VERDAD: 4 ROIs (cuadrantes de la imagen) + pose de
+                          agarre por estación (grados).
+   - poses.py             poses base + a_radianes() + trozar() + planes (secuencia_*).
+   - percepcion_camara.py NODO ROS: mide el color de cada estación y publica el mapa.
+   - orquestador.py       decisión -> rechazo previo -> cola -> POSE_BUSQUEDA -> mapa -> planes.
+   - validez.py           reglas duras compartidas (acción válida + vetadas).
+   - cliente_laya.py      HTTP contra LAYA, con permitido fail-safe y catálogo cerrado.
+   - clasificador_palabras_clave.py  respaldo local determinístico.
 
-A) Anclas de píxel (imagen 640x480, con el brazo en POSE_BUSQUEDA)
-   Orden pos1..pos4 (el mapeo esquina<->posN viene de B; anclas alineadas con las poses):
-     pos1 = (537, 385)   # abajo_derecha
-     pos2 = (114, 380)   # abajo_izquierda
-     pos3 = (520, 87)    # arriba_derecha
-     pos4 = (122, 90)    # arriba_izquierda
-   (Antes estaban espejadas horizontalmente: pedir rojo -> iba a la esquina contraria.
-    El color NUNCA fija la posicion: la camara arma color->posN en vivo.)
-   Separacion minima entre anclas ~290 px > 2 x radio_ancla_px (70) -> radio correcto.
+3. Datos fijos (estaciones.py / poses.py)
+   Base de calibración: POSE_BUSQUEDA = [20, -16, -7, -61, 0, -25]  (ROIs medidas desde aquí).
 
-B) Poses J1-J6 por esquina (grados), con su posicion POSICIONES_CUBO
-   Esquina            posN   J1    J2    J3    J4   J5   J6
-   abajo_derecha      pos1    3   -19  -109    31    0  -45
-   abajo_izquierda    pos2   41   -13  -126    55    0   -4
-   arriba_derecha     pos3    3   -51   -41     0    0  -45
-   arriba_izquierda   pos4   25   -54   -39     0    0  -25
+   Estación   ROI (640x480)          Pose de agarre (grados)
+   1 arriba-izq   (0,   0,   313, 243)   [27, -48, -67,  29, 2, -6]
+   2 arriba-der   (313, 0,   640, 243)   [4,  -48, -71,  35, 0, -30]
+   3 abajo-izq    (0,   243, 313, 480)   [41, -16, -128, 58, 0, 1]
+   4 abajo-der    (313, 243, 640, 480)   [3,  -16, -128, 58, 0, -35]
 
-   Estas poses son IDENTICAS a las de src/arm_broker/arm_broker/poses.py
-   (POSICIONES_CUBO); poses.py no requiere ningun cambio.
+   POSE_HOME  = [0, 0, 0, 0, 0, -45]
+   POSE_REPARTO = [93.51, -4.04, -71.54, -12.83, -1.75, -36.29]
+   DESTINOS (grados): amarillo [65.12,-72.15,-8.87,-11.77,5.18,-66.18]
+                      rojo     [80.15,-45.35,-61.78,12.39,5.27,-51.24]
+                      verde    [96.15,-35.15,-81.73,23.37,5.27,-36.56]
+                      azul     [113.29,-35.15,-81.73,23.37,5.27,-18.63]
+   Pinza (kit): abierta=100, cerrada=15.
 
-3. Archivos a Modificar (solo datos, cero logica)
-   Archivo                              Cambio
-   plan.txt                             Este documento: datos completos y arquitectura real.
-   src/arm_broker/arm_broker/orquestador.py      Defaults de anclas_camara (lineas 56-58) ->
-                                                 pos1=537,385 pos2=114,380 pos3=520,87 pos4=122,90
-   src/arm_broker/arm_broker/percepcion_camara.py  Fallback de anclas (lineas 41-46) -> mismos valores
-   docs/CALIBRAR_CAMARA.md               POSE_BUSQUEDA antigua (lineas 4, 39) -> la de poses.py
-   README_ITEM_2.md                      POSE_BUSQUEDA antigua (linea 53) -> la de poses.py
-   COMANDOS_ITEM_2.md                    Anclas de ejemplo (138, 229, 327) -> anclas reales
-   COMANDOS_RAPIDOS.md                   Anclas de ejemplo (41) -> anclas reales
-   README_ITEM_2.md                      Anclas de ejemplo (117) -> anclas reales
-   docs/EJECUTAR_ITEM_2.md               Anclas de ejemplo (85) -> anclas reales
+   El color NUNCA fija la pose: la cámara arma color -> estación en vivo y la pose de agarre sale
+   de la estación donde se vio ese color.
 
-   NO se modifica: poses.py (datos ya correctos), broker.py, ni ninguna logica de
-   deteccion, orquestacion o publicacion de joint_states.
+4. Troceado
+   El broker valida el paso con su paso_max_rad (default 1.2). El orquestador trocea cada tramo con
+   poses.trozar(..., paso_orquestador_rad=1.0) para no recibir rechazos con causa 'paso'.
 
-4. Verificacion
-   - grep: no deben quedar valores viejos (240,180 / 240,340 / 400,180 / 400,340 /
-     [-20, -16, -7, -61, 0, -24]) fuera de archivos historicos.
-   - Lectura cruzada: las tablas de este plan deben coincidir exactamente con
-     poses.py POSICIONES_CUBO.
-   - En la Jetson (con broker + driver): enviar una orden de color y comprobar en los
-     logs del orquestador "Intento 1: <color> en posN" con la posN correcta.
+5. Archivos modificados respecto al diseño anterior
+   - Nuevo: estaciones.py, validez.py.
+   - Reescrito: poses.py (planes + datos por estación), percepcion_camara.py (nodo ROS con ROIs),
+     orquestador.py (solo POSE_BUSQUEDA + mapa estable), cliente_laya.py (fail-safe + catálogo),
+     interprete_ordenes.py (gate de acción + reglas en ambas rutas), clasificador (cancelar +
+     tiene_vetada), gripper.py (reintenta descubrir la vía).
+   - setup.py/package.xml: entry point percepcion_camara + deps python3-numpy/opencv/requests.
+   - herramientas/calibrar_camara.py: verifica ROIs/estaciones (ya no hay anclas).
+   Eliminados: src/src (paquete duplicado) y _patch_item2.py.
+
+6. Verificación
+   - python -m py_compile de todos los módulos (parseo).
+   - En la Jetson: colcon build --packages-select arm_broker_interfaces arm_broker --symlink-install.
+   - Con broker + driver + percepcion_camara: enviar una orden de color y comprobar en los logs del
+     orquestador "color <color> en estación N" con la estación correcta, y una fila nueva en
+     intentos.csv con error_mm.

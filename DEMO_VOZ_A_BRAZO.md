@@ -19,8 +19,9 @@ transcriptor_voz ──texto──────────┤        ┌──�
                                   │
                      ┌────────────┴────────────┐
                      │  orquestador             │  (ítem 2)
-                     │  rechaza permitido=False  │
-                     │  cámara + poses + pinza   │
+                     │  rechaza permitido=False │
+                     │  + percepcion_camara     │
+                     │  poses + pinza           │
                      └────────────┬─────────────┘
                                   │ goals move_arm
                                   ▼
@@ -35,7 +36,7 @@ transcriptor_voz ──texto──────────┤        ┌──�
 ## Qué corre en cada máquina
 - **PC Windows**: `laya-serve` (decisión tipada, no necesita internet).
 - **Jetson (ROS 2)**: `broker`, `sync_plan_nx`, `interprete_ordenes`, `transcriptor_voz`,
-  `orquestador`.
+  `percepcion_camara`, `orquestador`.
 - **Google AI Studio (internet)**: solo la transcripción de audio.
 
 ---
@@ -104,9 +105,14 @@ ros2 run arm_broker transcriptor_voz --ros-args -p fuente:=teclado -p n_ordenes:
 
 > Para grabar los audios: `arecord -D plughw:1,0 -f S16_LE -r 16000 -c 1 -d 8 orden_01.wav`.
 
-### T5 — Orquestador (ítem 2): mueve el brazo
+### T5 — Percepción (ítem 2): mira la cámara
 ```bash
-ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion_pinza:=gripper_command -p paso_orquestador_rad:=1.5 -p usar_camara:=true -p usar_pose_busqueda:=true -p anclas_camara:="['pos1=537,385','pos2=114,380','pos3=520,87','pos4=122,90']"
+ros2 run arm_broker percepcion_camara --ros-args -p topico_imagen:=/image_raw -p confirmaciones:=5
+```
+
+### T6 — Orquestador (ítem 2): mueve el brazo
+```bash
+ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion_pinza:=gripper_command -p paso_orquestador_rad:=1.0 -p usar_camara:=true -p usar_estaciones:=true
 ```
 
 ---
@@ -115,14 +121,14 @@ ros2 run arm_broker orquestador --ros-args -p gripper_habilitada:=true -p accion
 
 1. **T4**: `✅ [GOOGLE] "<texto>" · <ms>` (o `⚠️ MODO TEXTO POR TECLADO` si falla la nube).
 2. **T4**: `🧭 [DECISIÓN] agarrar/<objeto>/<color> p=<prioridad> permitido=True · <ms>`.
-3. **T5**: `🔎 POSE_BUSQUEDA: colocando la cámara frente a la mesa`.
-4. **T5**: `🤖 Intento N: <color> en posN → zona <color>`.
-5. **T5/T2**: secuencia `abrir pinza → ir al cubo → cerrar pinza → ir a la zona → abrir → HOME`.
+3. **T5**: `🎯 mapa ESTABLE: {1: ..., 2: ..., 3: ..., 4: ...}` cuando el brazo está en `POSE_BUSQUEDA`.
+4. **T6**: `🔎 yendo a POSE_BUSQUEDA` y `📍 color <color> en estación N`.
+5. **T6/T2**: secuencia `abrir pinza → agarre en la estación → cerrar pinza → POSE_BUSQUEDA → reparto → zona del color → abrir → HOME`.
 6. **T1**: la cola atiende los pedidos (con prioridad se reordenan; con FIFO, en orden de llegada).
 
 Cuando la orden **no** se ejecuta, se registra el rechazo:
-- `permitido=False` o acción no de agarre → `rechazos_orquestador.csv` (no se encola).
-- Color no detectado sobre la mesa → rechazo `no_detectado`.
+- `permitido=False` o acción desconocida → `rechazos_orquestador.csv` (no se encola).
+- Color no visto en ninguna estación → rechazo `color_no_encontrado`.
 - Objeto/color desconocido → rechazo `objeto_desconocido`.
 
 ## Verificación
