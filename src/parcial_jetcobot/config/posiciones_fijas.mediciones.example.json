@@ -1,0 +1,485 @@
+{
+  "modo": "real",
+  "catalogo_confirmado": false,
+  "destino_por_defecto": "por_color",
+  "catalogo": [
+    {
+      "objeto": "cubo",
+      "color": "rojo",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        -0.09,
+        0.03
+      ]
+    },
+    {
+      "objeto": "cubo",
+      "color": "azul",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        -0.03,
+        0.03
+      ]
+    },
+    {
+      "objeto": "cubo",
+      "color": "verde",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        0.03,
+        0.03
+      ]
+    },
+    {
+      "objeto": "cubo",
+      "color": "amarillo",
+      "altura_agarre_m": 0.03,
+      "xyz_simulada_m": [
+        0.15,
+        0.09,
+        0.03
+      ]
+    }
+  ],
+  "zonas": {
+    "zona_rojo": {
+      "confirmada": false,
+      "xyz_m": [
+        0.07706301888898717,
+        0.243839568099467,
+        0.13754995442939708
+      ],
+      "quaternion_xyzw": [
+        0.9639495851792338,
+        0.25884104825209664,
+        -0.010580369531902622,
+        0.06075001854409157
+      ],
+      "frame_id": "base",
+      "altura_aproximacion_m": 0.05,
+      "semilla_ik_rad": [
+        1.5184364492350666,
+        -0.8552113334772214,
+        -0.8377580409572782,
+        0.0,
+        -0.017453292519943295,
+        -0.5759586531581288
+      ],
+      "q_referencia_grados": [
+        87,
+        -49,
+        -48,
+        0,
+        -1,
+        -33
+      ],
+      "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+    },
+    "zona_verde": {
+      "confirmada": false,
+      "xyz_m": [
+        -0.00398438798707993,
+        0.24679481155827274,
+        0.143006543316546
+      ],
+      "quaternion_xyzw": [
+        0.907457649630562,
+        0.4142212418335052,
+        -0.0017006125757225018,
+        0.07027435419662238
+      ],
+      "frame_id": "base",
+      "altura_aproximacion_m": 0.05,
+      "semilla_ik_rad": [
+        1.8500490071139892,
+        -0.7504915783575618,
+        -0.9599310885968813,
+        0.0,
+        -0.017453292519943295,
+        -0.5759586531581288
+      ],
+      "q_referencia_grados": [
+        106,
+        -43,
+        -55,
+        0,
+        -1,
+        -33
+      ],
+      "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+    },
+    "zona_azul": {
+      "confirmada": false,
+      "xyz_m": [
+        -0.07596610895366535,
+        0.23484612973211796,
+        0.14300654331654603
+      ],
+      "quaternion_xyzw": [
+        0.8362642129809595,
+        0.5438021599317635,
+        0.008705278096494124,
+        0.06975381763135075
+      ],
+      "frame_id": "base",
+      "altura_aproximacion_m": 0.05,
+      "semilla_ik_rad": [
+        2.1467549799530254,
+        -0.7504915783575618,
+        -0.9599310885968813,
+        0.0,
+        -0.017453292519943295,
+        -0.5759586531581288
+      ],
+      "q_referencia_grados": [
+        123,
+        -43,
+        -55,
+        0,
+        -1,
+        -33
+      ],
+      "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+    },
+    "zona_amarillo": {
+      "confirmada": false,
+      "xyz_m": [
+        0.13766481705072975,
+        0.23071209850769203,
+        0.14142005679023767
+      ],
+      "quaternion_xyzw": [
+        0.9900583495571171,
+        0.1392974226250387,
+        0.0005322976806813467,
+        0.019504081148258683
+      ],
+      "frame_id": "base",
+      "altura_aproximacion_m": 0.05,
+      "semilla_ik_rad": [
+        1.2740903539558606,
+        -0.9773843811168246,
+        -0.6283185307179586,
+        0.0,
+        -0.017453292519943295,
+        -0.5759586531581288
+      ],
+      "q_referencia_grados": [
+        73,
+        -56,
+        -36,
+        0,
+        -1,
+        -33
+      ],
+      "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+    }
+  },
+  "agarre": {
+    "altura_aproximacion_m": 0.05,
+    "quaternion_xyzw": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "interpretacion": {
+    "modo": "laya",
+    "url": "",
+    "modelo": "",
+    "preset": "",
+    "timeout_s": 3.0,
+    "umbral_permiso": 0.8
+  },
+  "camara": {
+    "indice": 0,
+    "camara_fija": false,
+    "calibracion_confirmada": false,
+    "area_minima_px": 300,
+    "homografia_pixel_base_m": null,
+    "matriz_intrinseca": null,
+    "distorsion": null,
+    "hsv": {
+      "rojo": [
+        [
+          [
+            0,
+            100,
+            80
+          ],
+          [
+            10,
+            255,
+            255
+          ]
+        ],
+        [
+          [
+            170,
+            100,
+            80
+          ],
+          [
+            179,
+            255,
+            255
+          ]
+        ]
+      ],
+      "azul": [
+        [
+          [
+            95,
+            80,
+            60
+          ],
+          [
+            130,
+            255,
+            255
+          ]
+        ]
+      ],
+      "verde": [
+        [
+          [
+            35,
+            80,
+            60
+          ],
+          [
+            85,
+            255,
+            255
+          ]
+        ]
+      ],
+      "amarillo": [
+        [
+          [
+            20,
+            100,
+            80
+          ],
+          [
+            35,
+            255,
+            255
+          ]
+        ]
+      ]
+    },
+    "resolucion_calibracion_px": [
+      640,
+      480
+    ],
+    "fraccion_minima_roi": 0.1
+  },
+  "hardware": {
+    "modelo_confirmado": false,
+    "driver_trayectorias_validado": false,
+    "adaptador_serial_confirmado": false,
+    "escena_colisiones_confirmada": false,
+    "grupo_moveit": "",
+    "eef_link": "",
+    "joint_names_moveit": [],
+    "frame_base": "base",
+    "servicio_ik": "/compute_ik",
+    "servicio_plan": "/plan_kinematic_path",
+    "timeout_servicio_s": 10.0,
+    "timeout_ik_s": 2.0,
+    "timeout_planificacion_s": 5.0,
+    "timeout_llegada_s": 10.0,
+    "timeout_pinza_s": 5.0,
+    "velocidad_escala": 0.15,
+    "aceleracion_escala": 0.15,
+    "tolerancia_inicio_rad": 0.1,
+    "tolerancia_llegada_rad": 0.08
+  },
+  "voz": {
+    "timeout_s": 12.0,
+    "modelo_env": "GEMINI_MODEL",
+    "clave_env": "GEMINI_API_KEY"
+  },
+  "manipulacion": {
+    "estrategia": "posiciones_fijas",
+    "busqueda": {
+      "q_rad": [
+        0.1609193570338772,
+        -0.09965830028887622,
+        0.004537856055185257,
+        -1.2424998944947632,
+        0.009075712110370514,
+        -0.7745771220350834
+      ],
+      "confirmada": false,
+      "limites_modelo_confirmados": false,
+      "tolerancia_rad": 0.02,
+      "timeout_llegada_s": 10.0,
+      "asentamiento_s": 0.5,
+      "edad_max_medida_s": 2.0,
+      "q_referencia_grados": [
+        9.22,
+        -5.71,
+        0.26,
+        -71.19,
+        0.52,
+        -44.38
+      ],
+      "origen": "Postura observacion de avances/pregunta_2/poses_ensenadas_rojo.json, reutilización indicada por el usuario"
+    },
+    "posiciones": {
+      "P1": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "roi_xywh": null,
+        "xyz_m": [
+          0.183595799465635,
+          -0.0538651586005797,
+          0.12209535037750083
+        ],
+        "quaternion_xyzw": [
+          0.9318391108123851,
+          -0.3576995210802561,
+          -0.05577061598778308,
+          0.024830678035087976
+        ],
+        "frame_id": "base",
+        "altura_aproximacion_m": 0.05,
+        "semilla_ik_rad": [
+          0.05235987755982989,
+          -0.33161255787892263,
+          -1.9024088846738192,
+          0.5410520681182421,
+          0.0,
+          -0.7853981633974483
+        ],
+        "q_referencia_grados": [
+          3,
+          -19,
+          -109,
+          31,
+          0,
+          -45
+        ],
+        "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+      },
+      "P2": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "roi_xywh": null,
+        "xyz_m": [
+          0.1677979081327124,
+          0.06185867239475779,
+          0.12883299819034802
+        ],
+        "quaternion_xyzw": [
+          0.9226133877210195,
+          -0.382158978021033,
+          0.023352189222612275,
+          -0.04683724558911053
+        ],
+        "frame_id": "base",
+        "altura_aproximacion_m": 0.05,
+        "semilla_ik_rad": [
+          0.7155849933176751,
+          -0.22689280275926285,
+          -2.199114857512855,
+          0.9599310885968813,
+          0.0,
+          -0.06981317007977318
+        ],
+        "q_referencia_grados": [
+          41,
+          -13,
+          -126,
+          55,
+          0,
+          -4
+        ],
+        "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+      },
+      "P3": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "roi_xywh": null,
+        "xyz_m": [
+          0.25811972169632225,
+          -0.04995952533300732,
+          0.1491551905488685
+        ],
+        "quaternion_xyzw": [
+          0.9334382376763479,
+          -0.35831336837079053,
+          -0.015943566625712786,
+          0.007098533207895228
+        ],
+        "frame_id": "base",
+        "altura_aproximacion_m": 0.05,
+        "semilla_ik_rad": [
+          0.05235987755982989,
+          -0.8901179185171081,
+          -0.7155849933176751,
+          0.0,
+          0.0,
+          -0.7853981633974483
+        ],
+        "q_referencia_grados": [
+          3,
+          -51,
+          -41,
+          0,
+          0,
+          -45
+        ],
+        "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+      },
+      "P4": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "roi_xywh": null,
+        "xyz_m": [
+          0.26038988009771785,
+          0.051467635133405736,
+          0.14162191975292496
+        ],
+        "quaternion_xyzw": [
+          0.939370611594112,
+          -0.3419029415646947,
+          -0.018509897659266666,
+          0.01850989765926676
+        ],
+        "frame_id": "base",
+        "altura_aproximacion_m": 0.05,
+        "semilla_ik_rad": [
+          0.4363323129985824,
+          -0.9424777960769379,
+          -0.6806784082777885,
+          0.0,
+          0.0,
+          -0.4363323129985824
+        ],
+        "q_referencia_grados": [
+          25,
+          -54,
+          -39,
+          0,
+          0,
+          -25
+        ],
+        "origen_geometria": "FK del DH del repositorio; pendiente de contrastar con URDF y herramienta real"
+      }
+    },
+    "destinos_por_color": {
+      "rojo": "zona_rojo",
+      "verde": "zona_verde",
+      "azul": "zona_azul",
+      "amarillo": "zona_amarillo"
+    },
+    "nota": "Referencias confirmadas de la captura del grupo. XYZ/orientación derivados de FK, no calibración validada. Completar búsqueda/ROI y verificar geometría antes de confirmar."
+  }
+}

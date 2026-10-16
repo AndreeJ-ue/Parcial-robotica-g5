@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Ejemplo: confirmar IP/puerto en cada reserva. Servidor Fast DDS id 0. -->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <participant profile_name="equipo_5_super_client" is_default_profile="true">
+    <rtps><builtin><discovery_config>
+      <discoveryProtocol>SUPER_CLIENT</discoveryProtocol>
+      <discoveryServersList>
+        <RemoteServer prefix="44.53.00.5F.45.50.52.4F.53.49.4D.41">
+          <metatrafficUnicastLocatorList><locator><udpv4>
+            <address>172.51.9.22</address><port>11811</port>
+          </udpv4></locator></metatrafficUnicastLocatorList>
+        </RemoteServer>
+      </discoveryServersList>
+    </discovery_config></builtin></rtps>
+  </participant>
+</profiles>

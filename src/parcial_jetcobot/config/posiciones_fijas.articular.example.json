@@ -1,0 +1,301 @@
+{
+  "modo": "real",
+  "destino_por_defecto": "por_color",
+  "catalogo": [],
+  "interpretacion": {
+    "modo": "laya",
+    "url": "",
+    "modelo": "",
+    "preset": "",
+    "timeout_s": 3.0,
+    "umbral_permiso": 0.8
+  },
+  "camara": {
+    "indice": 0,
+    "camara_fija": false,
+    "calibracion_confirmada": false,
+    "area_minima_px": 300,
+    "hsv": {
+      "rojo": [
+        [
+          [
+            0,
+            100,
+            80
+          ],
+          [
+            10,
+            255,
+            255
+          ]
+        ],
+        [
+          [
+            170,
+            100,
+            80
+          ],
+          [
+            179,
+            255,
+            255
+          ]
+        ]
+      ],
+      "azul": [
+        [
+          [
+            95,
+            80,
+            60
+          ],
+          [
+            130,
+            255,
+            255
+          ]
+        ]
+      ],
+      "verde": [
+        [
+          [
+            35,
+            80,
+            60
+          ],
+          [
+            85,
+            255,
+            255
+          ]
+        ]
+      ],
+      "amarillo": [
+        [
+          [
+            20,
+            100,
+            80
+          ],
+          [
+            35,
+            255,
+            255
+          ]
+        ]
+      ]
+    },
+    "resolucion_calibracion_px": [
+      640,
+      480
+    ],
+    "fraccion_minima_roi": 0.1,
+    "nota_calibracion": "ROI de 140x140 px centradas en las anclas calibradas por el equipo (pos1..pos4) con el brazo en la postura de búsqueda [20,-8,-21,-54,0,-22]. Comprobar con scripts/ver_posiciones_fijas.py antes de confirmar."
+  },
+  "hardware": {
+    "frame_base": "base",
+    "adaptador_serial_confirmado": false,
+    "velocidad_articular_rad_s": 0.35,
+    "paso_plan_rad": 0.25,
+    "timeout_servicio_s": 10.0,
+    "timeout_llegada_s": 15.0,
+    "timeout_pinza_s": 5.0,
+    "tolerancia_inicio_rad": 0.1,
+    "tolerancia_llegada_rad": 0.08,
+    "nota": "Modo articular: sin MoveIt. El driver integraciones/sync_plan_p2.py recibe /joint_states del broker, publica /arm/joint_states_measured y atiende /arm/accionar_pinza."
+  },
+  "voz": {
+    "timeout_s": 12.0,
+    "modelo_env": "GEMINI_MODEL",
+    "clave_env": "GEMINI_API_KEY"
+  },
+  "zonas": {
+    "zona_amarillo": {
+      "confirmada": false,
+      "q_grados": [
+        73,
+        -56,
+        -36,
+        0,
+        -1,
+        -33
+      ],
+      "frame_id": "base"
+    },
+    "zona_rojo": {
+      "confirmada": false,
+      "q_grados": [
+        87,
+        -49,
+        -48,
+        0,
+        -1,
+        -33
+      ],
+      "frame_id": "base"
+    },
+    "zona_verde": {
+      "confirmada": false,
+      "q_grados": [
+        106,
+        -43,
+        -55,
+        0,
+        -1,
+        -33
+      ],
+      "frame_id": "base"
+    },
+    "zona_azul": {
+      "confirmada": false,
+      "q_grados": [
+        123,
+        -43,
+        -55,
+        0,
+        -1,
+        -33
+      ],
+      "frame_id": "base"
+    }
+  },
+  "manipulacion": {
+    "estrategia": "posiciones_fijas",
+    "ejecucion": "articular",
+    "busqueda": {
+      "q_grados": [
+        20,
+        -8,
+        -21,
+        -54,
+        0,
+        -22
+      ],
+      "q_rad": [
+        0.3490658503988659,
+        -0.13962634015954636,
+        -0.3665191429188092,
+        -0.9424777960769379,
+        0.0,
+        -0.3839724354387525
+      ],
+      "confirmada": false,
+      "tolerancia_rad": 0.05,
+      "timeout_llegada_s": 15.0,
+      "asentamiento_s": 0.8,
+      "edad_max_medida_s": 2.0,
+      "origen": "POSE_BUSQUEDA calibrada por el equipo junto con las anclas de cámara (zip del compañero)"
+    },
+    "posiciones": {
+      "P1": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "esquina_imagen": "abajo_derecha",
+        "ancla_px": [
+          537,
+          385
+        ],
+        "roi_xywh": [
+          467,
+          315,
+          140,
+          140
+        ],
+        "q_grados": [
+          3,
+          -19,
+          -109,
+          31,
+          0,
+          -45
+        ],
+        "frame_id": "base"
+      },
+      "P2": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "esquina_imagen": "abajo_izquierda",
+        "ancla_px": [
+          114,
+          380
+        ],
+        "roi_xywh": [
+          44,
+          310,
+          140,
+          140
+        ],
+        "q_grados": [
+          41,
+          -13,
+          -126,
+          55,
+          0,
+          -4
+        ],
+        "frame_id": "base"
+      },
+      "P3": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "esquina_imagen": "arriba_derecha",
+        "ancla_px": [
+          520,
+          87
+        ],
+        "roi_xywh": [
+          450,
+          17,
+          140,
+          140
+        ],
+        "q_grados": [
+          3,
+          -51,
+          -41,
+          0,
+          0,
+          -45
+        ],
+        "frame_id": "base"
+      },
+      "P4": {
+        "confirmada": false,
+        "objeto": "cubo",
+        "esquina_imagen": "arriba_izquierda",
+        "ancla_px": [
+          122,
+          90
+        ],
+        "roi_xywh": [
+          52,
+          20,
+          140,
+          140
+        ],
+        "q_grados": [
+          25,
+          -54,
+          -39,
+          0,
+          0,
+          -25
+        ],
+        "frame_id": "base"
+      }
+    },
+    "destinos_por_color": {
+      "rojo": "zona_rojo",
+      "verde": "zona_verde",
+      "azul": "zona_azul",
+      "amarillo": "zona_amarillo"
+    },
+    "mapa_simulado": {
+      "P1": "rojo",
+      "P2": "verde",
+      "P3": "azul",
+      "P4": "amarillo"
+    }
+  },
+  "nota": "Lista para el laboratorio en modo articular. Cambiar cada 'confirmada' a true solo después de una prueba supervisada de esa pose. Copiar a config/posiciones_fijas.local.json."
+}

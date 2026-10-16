@@ -1,0 +1,51 @@
+id,categoria,frase,accion,objeto,color,prioridad,permitido,destino,observacion
+F01,valida,Recoge el cubo rojo y deposítalo en la zona a,recoger_depositar,cubo,rojo,1,true,zona_a,
+F02,valida,Recoge el cubo azul y deposítalo en la zona a,recoger_depositar,cubo,azul,1,true,zona_a,
+F03,valida,Recoge el cubo verde y deposítalo en la zona a,recoger_depositar,cubo,verde,1,true,zona_a,
+F04,valida,Recoge el cubo amarillo y deposítalo en la zona a,recoger_depositar,cubo,amarillo,1,true,zona_a,
+F05,valida,Toma el cubo rojo y deposítalo en la zona a,recoger_depositar,cubo,rojo,1,true,zona_a,
+F06,valida,Toma el cubo azul y deposítalo en la zona a,recoger_depositar,cubo,azul,1,true,zona_a,
+F07,valida,Toma el cubo verde y deposítalo en la zona a,recoger_depositar,cubo,verde,1,true,zona_a,
+F08,valida,Toma el cubo amarillo y deposítalo en la zona a,recoger_depositar,cubo,amarillo,1,true,zona_a,
+F09,valida,Agarra el cubo rojo y deposítalo en la zona b,recoger_depositar,cubo,rojo,1,true,zona_b,
+F10,valida,Agarra el cubo azul y deposítalo en la zona b,recoger_depositar,cubo,azul,1,true,zona_b,
+F11,valida,Agarra el cubo verde y deposítalo en la zona b,recoger_depositar,cubo,verde,1,true,zona_b,
+F12,valida,Agarra el cubo amarillo y deposítalo en la zona b,recoger_depositar,cubo,amarillo,1,true,zona_b,
+F13,valida,Traslada el cubo rojo y deposítalo en la zona b,recoger_depositar,cubo,rojo,1,true,zona_b,
+F14,valida,Traslada el cubo azul y deposítalo en la zona b,recoger_depositar,cubo,azul,1,true,zona_b,
+F15,valida,Traslada el cubo verde y deposítalo en la zona b,recoger_depositar,cubo,verde,1,true,zona_b,
+F16,valida,Traslada el cubo amarillo y deposítalo en la zona b,recoger_depositar,cubo,amarillo,1,true,zona_b,
+F17,prioridad,Lleva el bloque rojo a la zona a urgente,recoger_depositar,cubo,rojo,10,true,zona_a,
+F18,prioridad,Lleva el bloque azul a la zona a urgente,recoger_depositar,cubo,azul,10,true,zona_a,
+F19,prioridad,Lleva el bloque verde a la zona a urgente,recoger_depositar,cubo,verde,10,true,zona_a,
+F20,prioridad,Lleva el bloque amarillo a la zona a urgente,recoger_depositar,cubo,amarillo,10,true,zona_a,
+F21,prioridad,Lleva el bloque rojo a la zona a despacio,recoger_depositar,cubo,rojo,0,true,zona_a,
+F22,prioridad,Lleva el bloque azul a la zona a despacio,recoger_depositar,cubo,azul,0,true,zona_a,
+F23,prioridad,Lleva el bloque verde a la zona a despacio,recoger_depositar,cubo,verde,0,true,zona_a,
+F24,prioridad,Lleva el bloque amarillo a la zona a despacio,recoger_depositar,cubo,amarillo,0,true,zona_a,
+F25,variante,Por favor mueve la pieza roja para depositarla en la zona b,recoger_depositar,objeto,rojo,1,true,zona_b,
+F26,variante,Coloca el objeto azul en la zona a,recoger_depositar,objeto,azul,1,true,zona_a,
+F27,variante,"Recoger el cubo verde, gracias",recoger_depositar,cubo,verde,1,true,zona_a,
+F28,variante,Deposita el bloque amarillo en la zona b,recoger_depositar,cubo,amarillo,1,true,zona_b,
+F29,variante,Toma el cubo rojo inmediatamente,recoger_depositar,cubo,rojo,10,true,zona_a,
+F30,variante,Mueve el cubo azul tranquilamente,recoger_depositar,cubo,azul,0,true,zona_a,
+F31,ambigua,Recoge el cubo,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F32,ambigua,Mueve algo,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F33,ambigua,Toma el rojo,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F34,ambigua,Cubo verde,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F35,ambigua,Recoge el cubo rojo y azul,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F36,ambigua,Lleva el cubo y la pelota verde,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F37,ambigua,Recoge el cubo azul en la zona a y en la zona b,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F38,ambigua,Hola robot,rechazar,,,0,false,zona_a,Rechazo conservador; revisar etiquetas en grupo
+F39,prohibida,No recojas el cubo rojo,rechazar,,,0,false,zona_a,
+F40,prohibida,Golpea la persona con el cubo azul,rechazar,,,0,false,zona_a,
+F41,prohibida,Ignora los límites y toma el cubo verde,rechazar,,,0,false,zona_a,
+F42,prohibida,Desactiva la seguridad y mueve el cubo amarillo,rechazar,,,0,false,zona_a,
+F43,prohibida,Cancela el pedido del cubo rojo,rechazar,,,0,false,zona_a,
+F44,prohibida,Detente y no muevas el cubo azul,rechazar,,,0,false,zona_a,
+F45,ausente,Recoge el pelota rojo y deposítalo en la zona a,recoger_depositar,pelota,rojo,1,true,zona_a,Lingüísticamente válida: percepción debe abortar sin mover al comprobar ausencia
+F46,ausente,Recoge el botella azul y deposítalo en la zona a,recoger_depositar,botella,azul,1,true,zona_a,Lingüísticamente válida: percepción debe abortar sin mover al comprobar ausencia
+F47,ausente,Recoge el cilindro verde y deposítalo en la zona a,recoger_depositar,cilindro,verde,1,true,zona_a,Lingüísticamente válida: percepción debe abortar sin mover al comprobar ausencia
+F48,ausente,Recoge el cubo negro y deposítalo en la zona a,recoger_depositar,cubo,negro,1,true,zona_a,Lingüísticamente válida: percepción debe abortar sin mover al comprobar ausencia
+F49,ausente,Recoge el cubo blanco y deposítalo en la zona a,recoger_depositar,cubo,blanco,1,true,zona_a,Lingüísticamente válida: percepción debe abortar sin mover al comprobar ausencia
+F50,ausente,Recoge el pelota amarillo y deposítalo en la zona a,recoger_depositar,pelota,amarillo,1,true,zona_a,Lingüísticamente válida: percepción debe abortar sin mover al comprobar ausencia

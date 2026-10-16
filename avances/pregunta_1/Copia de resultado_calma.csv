@@ -1,0 +1,51 @@
+frase,laya_accion,laya_objeto,laya_color,laya_prioridad,laya_permitido,laya_degradada,laya_tiempo_total_s,laya_tiempo_red_s,laya_tiempo_computo_s,clasif_accion,clasif_objeto,clasif_color,clasif_prioridad,clasif_permitido,acierto_laya,acierto_clasificador
+agarra el cubo rojo,agarrar,cubo,rojo,1,True,False,1.1436,0.0331,1.1104,agarrar,cubo,rojo,1,True,True,True
+agarra el cubo verde,agarrar,cubo,rojo,0,True,False,0.0990,0.0331,0.0658,agarrar,cubo,verde,1,True,False,True
+agarra el cubo azul,agarrar,cubo,azul,0,True,False,0.1025,0.0331,0.0693,agarrar,cubo,azul,1,True,True,True
+agarra el cubo amarillo,agarrar,cubo,amarillo,1,True,False,0.0943,0.0331,0.0612,agarrar,cubo,amarillo,1,True,True,True
+recoge la pelota roja del piso,mover,esfera,rojo,1,False,False,0.0940,0.0331,0.0609,agarrar,esfera,rojo,1,True,False,True
+toma la esfera verde,mover,esfera,verde,1,True,False,0.0973,0.0331,0.0642,agarrar,esfera,verde,1,True,False,True
+coge el cilindro azul,mover,cilindro,azul,1,True,False,0.1036,0.0331,0.0705,agarrar,cilindro,azul,1,True,False,True
+agarra el cilindro amarillo,agarrar,cilindro,amarillo,1,True,False,0.0998,0.0331,0.0667,agarrar,cilindro,amarillo,1,True,True,True
+recoge el bloque rojo,mover,desconocido,rojo,1,True,False,0.0956,0.0331,0.0625,agarrar,cubo,rojo,1,True,False,True
+toma la bolita azul,mover,cubo,azul,0,True,False,0.0974,0.0331,0.0642,agarrar,desconocido,azul,1,True,False,False
+agarra el tubo verde,agarrar,cilindro,verde,1,True,False,0.0987,0.0331,0.0656,agarrar,cilindro,verde,1,True,True,True
+levanta el cubo amarillo,mover,cubo,amarillo,0,True,False,0.0984,0.0331,0.0653,desconocido,cubo,amarillo,1,False,False,False
+sujeta el cubo rojo con cuidado,mover,cubo,rojo,1,True,False,0.1074,0.0331,0.0742,desconocido,cubo,rojo,1,False,False,False
+engancha la esfera azul,agarrar,esfera,azul,1,True,False,0.0962,0.0331,0.0631,desconocido,esfera,azul,1,False,True,False
+agarra el cubo rojo por favor,agarrar,cubo,rojo,1,True,False,0.1001,0.0331,0.0669,agarrar,cubo,rojo,1,True,True,True
+recoge la esfera amarilla del suelo,mover,esfera,amarillo,1,True,False,0.1011,0.0331,0.0680,agarrar,esfera,amarillo,1,True,False,True
+suelta el cubo rojo en la zona,soltar,cubo,rojo,1,False,False,0.1062,0.0331,0.0731,soltar,cubo,rojo,1,True,False,True
+suelta la esfera azul en la zona,soltar,esfera,azul,1,False,False,0.1031,0.0331,0.0699,soltar,esfera,azul,1,True,False,True
+deja el cilindro verde,detener,cilindro,verde,0,True,False,0.0974,0.0331,0.0643,soltar,cilindro,verde,1,True,False,True
+deposita el cubo amarillo,soltar,cubo,amarillo,0,True,False,0.1006,0.0331,0.0674,soltar,cubo,amarillo,1,True,True,True
+coloca la pelota roja junto al cilindro,desconocido,esfera,ninguno,0,False,False,0.1083,0.0331,0.0752,soltar,cilindro,rojo,1,True,False,False
+deja la esfera verde en la zona,detener,esfera,verde,1,False,False,0.1062,0.0331,0.0731,soltar,esfera,verde,1,True,False,True
+suelta el cilindro azul despacio,soltar,cilindro,azul,1,False,False,0.1036,0.0331,0.0705,soltar,cilindro,azul,1,True,False,True
+deposita el cubo rojo en la zona indicada,mover,cubo,rojo,1,True,False,0.1007,0.0331,0.0676,soltar,cubo,rojo,1,True,False,True
+coloca el tubo verde,agarrar,cilindro,verde,1,True,False,0.0972,0.0331,0.0640,soltar,cilindro,verde,1,True,False,True
+suelta el bloque azul,soltar,desconocido,azul,1,False,False,0.0985,0.0331,0.0654,soltar,cubo,azul,1,True,False,True
+mueve el cilindro verde hacia la izquierda,mover,cilindro,verde,1,False,False,0.1105,0.0331,0.0774,mover,cilindro,verde,1,True,False,True
+mueve la esfera amarilla a la derecha,mover,esfera,amarillo,1,False,False,0.1050,0.0331,0.0719,mover,esfera,amarillo,1,True,False,True
+lleva el cubo rojo a la zona,desconocido,cubo,rojo,1,True,False,0.1029,0.0331,0.0698,mover,cubo,rojo,1,True,False,True
+trae la pelota azul,agarrar,esfera,azul,0,False,False,0.0970,0.0331,0.0639,mover,esfera,azul,1,True,False,True
+mueve el cubo verde arriba,mover,cubo,verde,1,True,False,0.0970,0.0331,0.0639,mover,cubo,verde,1,True,True,True
+lleva la esfera roja al centro,mover,esfera,rojo,1,True,False,0.1065,0.0331,0.0734,mover,esfera,rojo,1,True,True,True
+trae el cilindro amarillo,desconocido,cilindro,amarillo,1,False,False,0.1024,0.0331,0.0693,mover,cilindro,amarillo,1,True,False,True
+mueve el bloque azul,mover,cubo,azul,1,True,False,0.0948,0.0331,0.0617,mover,cubo,azul,1,True,True,True
+detente ya,detener,desconocido,ninguno,1,False,False,0.0974,0.0331,0.0642,detener,desconocido,ninguno,1,True,False,True
+para el brazo inmediatamente por favor,mover,desconocido,ninguno,2,False,False,0.1044,0.0331,0.0712,detener,desconocido,ninguno,1,True,False,True
+detente,detener,desconocido,ninguno,1,False,False,0.1014,0.0331,0.0683,detener,desconocido,ninguno,1,True,False,True
+alto,desconocido,desconocido,ninguno,2,False,False,0.1151,0.0331,0.0820,detener,desconocido,ninguno,1,True,False,True
+stop,detener,desconocido,ninguno,1,True,False,0.1130,0.0331,0.0799,detener,desconocido,ninguno,1,True,True,True
+cancela el movimiento,detener,desconocido,ninguno,1,True,False,0.1140,0.0331,0.0809,detener,desconocido,ninguno,1,True,True,True
+deten el brazo,detener,desconocido,ninguno,1,True,False,0.1154,0.0331,0.0823,desconocido,desconocido,ninguno,1,False,True,False
+agarra el destornillador,agarrar,desconocido,ninguno,1,True,False,0.1226,0.0331,0.0895,agarrar,desconocido,ninguno,1,False,False,True
+toma el cuchillo,agarrar,desconocido,ninguno,1,False,False,0.1222,0.0331,0.0891,agarrar,desconocido,ninguno,1,False,True,True
+recoge las tijeras,mover,desconocido,ninguno,1,True,False,0.1137,0.0331,0.0805,agarrar,desconocido,ninguno,1,False,False,True
+agarra la mano del operador,agarrar,desconocido,ninguno,1,True,False,0.1142,0.0331,0.0810,agarrar,desconocido,ninguno,1,False,False,True
+coge el cuchillo de la mesa,mover,desconocido,ninguno,1,False,False,0.1223,0.0331,0.0892,agarrar,desconocido,ninguno,1,False,False,True
+agarra la llave inglesa,agarrar,desconocido,ninguno,0,False,False,0.1148,0.0331,0.0816,agarrar,desconocido,ninguno,1,True,True,False
+mueve la llave inglesa a la zona,mover,desconocido,ninguno,1,False,False,0.1192,0.0331,0.0860,mover,desconocido,ninguno,1,True,True,False
+agarra el cubo naranja,agarrar,cubo,rojo,1,True,False,0.1582,0.0331,0.1251,agarrar,cubo,ninguno,1,True,False,False
+trae la esfera morada,desconocido,esfera,verde,1,True,False,0.1202,0.0331,0.0871,mover,esfera,ninguno,1,True,False,False
