@@ -17,7 +17,7 @@ cd ~/Parcial-robotica
 source /opt/ros/humble/setup.bash
 colcon build --symlink-install --packages-select arm_broker_interfaces arm_broker parcial_jetcobot
 source install/setup.bash
-python3 -B -m unittest discover -s tests          # 52 pruebas OK
+python3 -B -m unittest discover -s tests          # todas OK
 mkdir -p evidencias
 ```
 

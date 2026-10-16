@@ -12,7 +12,7 @@ Antes de cada medición anoten lo que esperan obtener (columna *Predicción*).
 
 ```bash
 cd ~/Parcial-robotica
-python3 -B -m unittest discover -s tests -v      # 52 pruebas, deben pasar todas
+python3 -B -m unittest discover -s tests -v      # deben pasar todas
 python3 -B scripts/demo_offline.py               # 3 órdenes: rojo OK, pelota rechazada, "No recojas" rechazada
 ```
 
